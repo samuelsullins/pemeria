@@ -20,7 +20,9 @@ struct EditorPane: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
                 Divider()
-                if model.outlinePinned {
+                if model.readMode {
+                    EditorView(model: model, mode: .reading)
+                } else if model.outlinePinned {
                     VSplitView {
                         EditorView(model: model, mode: .bodies)
                             .frame(minHeight: 160)

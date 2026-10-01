@@ -52,6 +52,8 @@ enum EditorMode: Equatable {
     case bodies
     /// Outlines only, each labeled with its file (the pinned outline pane).
     case outlines
+    /// Read mode: draft and note text with comments and bookmarks hidden. Not editable.
+    case reading
 }
 
 /// Which files the editor is showing, and as what. A change means reloading.
@@ -93,6 +95,15 @@ struct EditorContent {
                     appendMarker(EditorMarker(kind: .outlineDivider, fileID: file.id, title: file.title))
                     appendSegment(file.id, .outline, indented: false, TextBridge.attributedString(file.outline ?? []))
                 }
+            case .reading:
+                if files.count > 1 {
+                    appendMarker(EditorMarker(kind: .fileHeader, fileID: file.id, title: file.title))
+                }
+                let readable = file.body.compactMap { block -> Block? in
+                    guard case .paragraph(let paragraph) = block else { return nil }
+                    return Comments.stripped(paragraph).map(Block.paragraph)
+                }
+                appendSegment(file.id, .body, indented: file.kind == .draft, TextBridge.attributedString(readable))
             case .outlines:
                 guard file.kind == .draft else { continue }
                 appendMarker(EditorMarker(kind: .fileHeader, fileID: file.id, title: file.title))

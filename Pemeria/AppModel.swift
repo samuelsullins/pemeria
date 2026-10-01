@@ -11,6 +11,10 @@ final class AppModel {
     private(set) var recentProjects: [URL] = []
     /// Shown as an alert, then cleared.
     var message: String?
+    /// The comments/bookmarks panel on the right (SPEC.md §6–7).
+    var rightPanelVisible = UserDefaults.standard.bool(forKey: "rightPanelVisible") {
+        didSet { UserDefaults.standard.set(rightPanelVisible, forKey: "rightPanelVisible") }
+    }
 
     private init() {
         recentProjects = RecentProjects.load()

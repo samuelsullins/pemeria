@@ -50,8 +50,29 @@ struct ProjectView: View {
                 .navigationSplitViewColumnWidth(min: 180, ideal: 240, max: 420)
         } detail: {
             EditorPane(model: model)
+                .inspector(isPresented: Binding(
+                    get: { AppModel.shared.rightPanelVisible },
+                    set: { AppModel.shared.rightPanelVisible = $0 }
+                )) {
+                    RightPanel(model: model)
+                        .inspectorColumnWidth(min: 220, ideal: 270, max: 420)
+                }
         }
         .navigationTitle(model.project.manifest.name)
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Toggle(isOn: Binding(get: { model.readMode }, set: { model.readMode = $0 })) {
+                    Label("Read Mode", systemImage: model.readMode ? "eye.fill" : "eye")
+                }
+                .help("Read Mode (⇧⌘R): hide comments, outlines and bookmarks")
+                Button {
+                    AppModel.shared.rightPanelVisible.toggle()
+                } label: {
+                    Label("Comments & Bookmarks", systemImage: "sidebar.right")
+                }
+                .help("Show or hide comments and bookmarks (⌥⌘0)")
+            }
+        }
     }
 }
 

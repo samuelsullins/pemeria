@@ -76,7 +76,24 @@ struct PemeriaCommands: Commands {
             }
         }
 
+        CommandGroup(after: .pasteboard) {
+            Divider()
+            Button("Add Bookmark…") { NSApp.sendAction(#selector(EditorTextView.addBookmark(_:)), to: nil, from: nil) }
+                .keyboardShortcut("d")
+            Button("Insert Comment") { NSApp.sendAction(#selector(EditorTextView.insertComment(_:)), to: nil, from: nil) }
+                .keyboardShortcut("/")
+        }
+
         CommandGroup(after: .sidebar) {
+            Button(app.rightPanelVisible ? "Hide Comments & Bookmarks" : "Show Comments & Bookmarks") {
+                app.rightPanelVisible.toggle()
+            }
+            .keyboardShortcut("0", modifiers: [.command, .option])
+            Button(app.project?.readMode == true ? "Exit Read Mode" : "Read Mode") {
+                if let project = app.project { project.readMode.toggle() }
+            }
+            .keyboardShortcut("r", modifiers: [.command, .shift])
+            .disabled(app.project == nil)
             Button(app.project?.outlinePinned == true ? "Unpin Outline" : "Pin Outline") {
                 if let project = app.project { project.outlinePinned.toggle() }
             }

@@ -32,6 +32,19 @@ final class ProjectModel {
         didSet { if outlinePinned != oldValue { saveState() } }
     }
 
+    /// Read mode (SPEC.md §12): comments, outlines and bookmarks hidden; not editable.
+    var readMode = false {
+        willSet { commitEditors() }
+    }
+
+    /// A comment or bookmark to move to, set by the right panel and cleared by the editor that shows it.
+    var jumpRequest: JumpRequest?
+    private var jumpCount = 0
+
+    /// Bumped when a shown file's text is changed from outside the editor (e.g. renaming a
+    /// bookmark in the panel), so editors reload it.
+    private(set) var contentToken = 0
+
     /// Open editors register here; each saves its unsaved typing and records the cursor.
     /// Called before anything that changes what an editor shows.
     @ObservationIgnored private var editorCommits: [ObjectIdentifier: () -> Void] = [:]
@@ -130,6 +143,36 @@ final class ProjectModel {
         }
     }
 
+    /// Shows the file containing `location` (selecting it if needed) and moves the cursor there.
+    func jump(to location: TextLocation, isBookmark: Bool) {
+        readMode = false
+        if !selection.contains(location.fileID) {
+            var parent = project.tree.parentOf[location.fileID]
+            while let current = parent {
+                expanded.insert(current)
+                parent = project.tree.parentOf[current]
+            }
+            selection = [location.fileID]
+        }
+        jumpCount += 1
+        jumpRequest = JumpRequest(id: jumpCount, location: location, isBookmark: isBookmark)
+    }
+
+    func renameBookmark(at location: TextLocation, to name: String) {
+        commitEditors()
+        guard let file = project.renameBookmark(at: location, to: name) else { return }
+        save([file], structural: false)
+        contentToken += 1
+    }
+
+    func removeBookmark(at location: TextLocation) {
+        commitEditors()
+        guard let file = project.removeBookmark(at: location) else { return }
+        snapshotIfDue(file.id)
+        save([file], structural: false)
+        contentToken += 1
+    }
+
     /// Saves text typed in the editor. Pass nil to leave the body or outline unchanged.
     func updateContent(_ id: FileID, body: [Block]?, outline: [Block]?) {
         guard let file = project.setContent(id, body: body, outline: outline) else { return }
@@ -181,4 +224,10 @@ final class ProjectModel {
             outlinePinned: outlinePinned
         ))
     }
+}
+
+struct JumpRequest: Equatable {
+    let id: Int
+    let location: TextLocation
+    let isBookmark: Bool
 }

@@ -176,7 +176,8 @@ Font, size, alignment (justified by default, or left), line height, indent size,
 
 - **⌘D** opens a small name popup at the cursor, Blender-style. Type a name, press Return, done. Esc cancels.
 - **A bookmark marks a line.** It's drawn as a **labeled dotted line** above that line, styled clearly differently from the page-break line between files (accent color plus the bookmark's name).
-- **One unit:** the bookmark behaves as a single piece in the text. Backspace removes the whole thing, and undo brings it back.
+- **One unit:** the bookmark behaves as a single piece in the text. Backspace removes the whole thing, and undo brings it back. The cursor hops over bookmark lines like it does over divider lines. Leaving the name empty names the bookmark after the first few words of its line **(assumed)**.
+- **Right-click a bookmark** in the panel to rename or delete it.
 - **Bookmarks panel:** lists all bookmarks in the project, in book order **(assumed: always project-wide, since bookmarks are for navigation)**. Click one to jump. Double-click to rename. The **+** button does the same as ⌘D.
 
 ---
@@ -237,6 +238,7 @@ Font, size, alignment (justified by default, or left), line height, indent size,
 |---|---|
 | Italic / Bold | ⌘I / ⌘B |
 | Add bookmark | ⌘D |
+| Start a comment at the cursor | ⌘/ *(assumed)* |
 | Search everything | ⌘K |
 | Jump to Working File | ⌘J *(assumed)* |
 | Set Working File | ⇧⌘J *(assumed)* |

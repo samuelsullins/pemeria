@@ -37,6 +37,19 @@ final class EditorTextView: NSTextView {
         controller?.toggle(.bold)
     }
 
+    @objc func addBookmark(_ sender: Any?) {
+        controller?.beginAddingBookmark()
+    }
+
+    @objc func insertComment(_ sender: Any?) {
+        controller?.insertComment()
+    }
+
+    /// One line is one paragraph, so ⇧Return makes a new paragraph too.
+    override func insertLineBreak(_ sender: Any?) {
+        insertNewline(sender)
+    }
+
     // MARK: Clipboard
 
     override var readablePasteboardTypes: [NSPasteboard.PasteboardType] {
