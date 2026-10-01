@@ -152,7 +152,7 @@ The sidebar and the right panel each toggle on and off. One project is open at a
 ### Typography (display and typing only; nothing is rewritten after the fact)
 - **Curly quotes and apostrophes** are converted as you type, like every Mac app, and stored as real curly characters. Getting these right in every situation (*'em*, *'til*) is later polish; working curly quotes come first.
 - **Em dash:** `--` becomes — as you type.
-- **First-line indent** on every paragraph. The first paragraph of each file is flush left, following book convention **(assumed)**. Indents are drawn by the editor; no tabs are stored.
+- **First-line indent** on every paragraph of draft text. The first paragraph of each file is flush left, following book convention **(assumed)**. Outlines and notes are flush left throughout **(assumed)**. Indents are drawn by the editor; no tabs are stored.
 - **No spacing between paragraphs** (book style). Spacing is a global setting.
 
 ### Global settings (Preferences, app-wide, never per document)

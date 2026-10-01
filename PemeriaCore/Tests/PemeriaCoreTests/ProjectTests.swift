@@ -146,3 +146,22 @@ struct ProjectTests {
         }
     }
 }
+
+struct ProjectContentTests {
+    @Test func setContentOnlyReportsRealChanges() {
+        var project = Project(manifest: ProjectManifest(name: "x"), files: [:])
+        let file = project.createFile(kind: .draft)
+        #expect(project.setContent(file.id, body: file.body, outline: nil) == nil)
+        let updated = project.setContent(file.id, body: [.paragraph(Paragraph("Hello"))], outline: nil)
+        #expect(updated?.body == [.paragraph(Paragraph("Hello"))])
+        #expect(updated?.outline == [])
+        #expect(project.files[file.id]?.body == [.paragraph(Paragraph("Hello"))])
+    }
+
+    @Test func stateWithoutPositionsStillLoads() throws {
+        let json = #"{"expanded":["ch0001"],"selection":["sc0011"]}"#
+        let state = try JSONDecoder().decode(ProjectState.self, from: Data(json.utf8))
+        #expect(state.selection == ["sc0011"])
+        #expect(state.positions.isEmpty)
+    }
+}

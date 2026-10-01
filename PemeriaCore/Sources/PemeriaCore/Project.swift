@@ -82,6 +82,18 @@ public struct Project: Sendable {
         }
     }
 
+    /// Replaces a file's text. Pass nil to leave the body or outline as it is.
+    /// Returns nil if nothing actually changed.
+    public mutating func setContent(_ id: FileID, body: [Block]?, outline: [Block]?) -> PemeriaFile? {
+        guard var file = files[id] else { return nil }
+        let before = file
+        if let body { file.body = Block.canonical(body) }
+        if let outline { file.outline = Block.canonical(outline) }
+        guard file != before else { return nil }
+        files[id] = file
+        return file
+    }
+
     /// Whether `ids` can be moved under `parent` (nil = top level).
     /// A file can't move into itself or anywhere nested inside itself.
     public func canMove(_ ids: [FileID], into parent: FileID?) -> Bool {
@@ -153,9 +165,36 @@ public struct Project: Sendable {
 public struct ProjectState: Codable, Hashable, Sendable {
     public var selection: [FileID]
     public var expanded: [FileID]
+    /// Where you were in each file, keyed by file id.
+    public var positions: [String: FilePosition]
 
-    public init(selection: [FileID] = [], expanded: [FileID] = []) {
+    public init(selection: [FileID] = [], expanded: [FileID] = [], positions: [String: FilePosition] = [:]) {
         self.selection = selection
         self.expanded = expanded
+        self.positions = positions
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        selection = try container.decodeIfPresent([FileID].self, forKey: .selection) ?? []
+        expanded = try container.decodeIfPresent([FileID].self, forKey: .expanded) ?? []
+        positions = try container.decodeIfPresent([String: FilePosition].self, forKey: .positions) ?? [:]
+    }
+}
+
+/// Where the cursor was in a file, and where it sat on screen, so returning puts you back.
+public struct FilePosition: Codable, Hashable, Sendable {
+    public var inOutline: Bool
+    /// Cursor offset (UTF-16) from the start of the body or outline.
+    public var cursor: Int
+    /// Cursor's distance from the top of the visible area, in points.
+    public var viewportOffset: Double
+    public var lastActive: Date
+
+    public init(inOutline: Bool, cursor: Int, viewportOffset: Double, lastActive: Date) {
+        self.inOutline = inOutline
+        self.cursor = cursor
+        self.viewportOffset = viewportOffset
+        self.lastActive = lastActive
     }
 }

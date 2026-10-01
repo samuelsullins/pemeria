@@ -261,13 +261,13 @@
 		000000000000000111000000 /* Debug configuration for PBXNativeTarget "Pemeria" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Config/Pemeria.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = MJ9R3XRRGM;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readwrite;
-				CODE_SIGN_ENTITLEMENTS = Config/Pemeria.entitlements;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Config/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Pemeria;
@@ -291,13 +291,13 @@
 		000000000000000112000000 /* Release configuration for PBXNativeTarget "Pemeria" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Config/Pemeria.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = MJ9R3XRRGM;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readwrite;
-				CODE_SIGN_ENTITLEMENTS = Config/Pemeria.entitlements;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Config/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Pemeria;
@@ -320,20 +320,6 @@
 		};
 /* End XCBuildConfiguration section */
 
-/* Begin XCLocalSwiftPackageReference section */
-		0000000000000000000002C0 /* XCLocalSwiftPackageReference "PemeriaCore" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = PemeriaCore;
-		};
-/* End XCLocalSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		0000000000000000000002B0 /* PemeriaCore */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = PemeriaCore;
-		};
-/* End XCSwiftPackageProductDependency section */
-
 /* Begin XCConfigurationList section */
 		000000000000000010000000 /* Build configuration list for PBXProject "Pemeria" */ = {
 			isa = XCConfigurationList;
@@ -352,6 +338,20 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		0000000000000000000002C0 /* XCLocalSwiftPackageReference "PemeriaCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = PemeriaCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		0000000000000000000002B0 /* PemeriaCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = PemeriaCore;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 000000000000000000000000 /* Project object */;
 }

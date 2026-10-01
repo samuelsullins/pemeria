@@ -48,7 +48,7 @@ struct ProjectView: View {
             SidebarView(model: model)
                 .navigationSplitViewColumnWidth(min: 180, ideal: 240, max: 420)
         } detail: {
-            PreviewView(model: model)
+            EditorPane(model: model)
         }
         .navigationTitle(model.project.manifest.name)
         .toolbar {
