@@ -45,8 +45,12 @@ final class ProjectModel {
     /// bookmark in the panel), so editors reload it.
     private(set) var contentToken = 0
 
-    /// Shows the Edit Icons sheet.
-    var isEditingIcons = false
+    /// Bumped to open the Icons pane at the bottom of the sidebar (e.g. "Edit Icons…").
+    private(set) var iconEditorRequest = 0
+
+    /// Words in the editor's selected text, or nil when nothing is selected (SPEC.md §10).
+    private(set) var selectedTextWords: Int?
+    @ObservationIgnored private var selectedTextSource: ObjectIdentifier?
 
     /// Open editors register here; each saves its unsaved typing and records the cursor.
     /// Called before anything that changes what an editor shows.
@@ -163,6 +167,58 @@ final class ProjectModel {
     /// Turns an icon on or off for `ids` (SPEC.md §4).
     func toggleIcon(_ iconID: String, on ids: [FileID]) {
         save(project.toggleIcon(iconID, on: ids))
+    }
+
+    func showIconEditor() {
+        iconEditorRequest += 1
+    }
+
+    /// Saves a change to one icon's name, colour or symbol.
+    func updateIcon(_ icon: IconDefinition) {
+        var icons = project.manifest.icons
+        guard let index = icons.firstIndex(where: { $0.id == icon.id }), icons[index] != icon else { return }
+        icons[index] = icon
+        setIconDefinitions(icons)
+    }
+
+    /// Adds an icon with an unused colour and returns it.
+    @discardableResult
+    func addIcon() -> IconDefinition {
+        let icons = project.manifest.icons
+        let used = Set(icons.map(\.color))
+        let icon = IconDefinition(
+            id: IconDefinition.generateID(avoiding: icons),
+            name: "New Icon",
+            symbol: "star.fill",
+            color: IconPalette.colors.first { !used.contains($0) } ?? IconPalette.colors[0]
+        )
+        setIconDefinitions(icons + [icon])
+        return icon
+    }
+
+    func deleteIcon(_ id: String) {
+        setIconDefinitions(project.manifest.icons.filter { $0.id != id })
+    }
+
+    /// Moves an icon one place left (-1) or right (+1) in the list.
+    func moveIcon(_ id: String, by offset: Int) {
+        var icons = project.manifest.icons
+        guard let index = icons.firstIndex(where: { $0.id == id }), icons.indices.contains(index + offset) else { return }
+        icons.swapAt(index, index + offset)
+        setIconDefinitions(icons)
+    }
+
+    /// How many files use an icon.
+    func usage(of iconID: String) -> Int {
+        project.files.values.filter { $0.icons.contains(iconID) }.count
+    }
+
+    /// Editors report their selection's word count here; the last one with a selection wins.
+    func setSelectedTextWords(_ count: Int?, from editor: AnyObject) {
+        let source = ObjectIdentifier(editor)
+        if count == nil, selectedTextSource != source { return }
+        selectedTextSource = count == nil ? nil : source
+        if selectedTextWords != count { selectedTextWords = count }
     }
 
     func setIconDefinitions(_ icons: [IconDefinition]) {

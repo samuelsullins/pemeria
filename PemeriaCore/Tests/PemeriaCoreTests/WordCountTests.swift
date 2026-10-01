@@ -15,6 +15,16 @@ struct WordCountTests {
         #expect(WordCount.count("Rain \u{2060}came. \u{2060} ") == 2)
     }
 
+    @Test func countsPartOfALineWithoutComments() {
+        let line = "She ran home. // too fast? Then slept."
+        let whole = NSRange(location: 0, length: (line as NSString).length)
+        #expect(WordCount.count(in: whole, ofLine: line) == 5)
+        // Starting inside the comment still skips it.
+        #expect(WordCount.count(in: NSRange(location: 18, length: whole.length - 18), ofLine: line) == 2)
+        #expect(WordCount.count(in: NSRange(location: 0, length: 7), ofLine: line) == 2)
+        #expect(WordCount.count(in: NSRange(location: 4, length: 0), ofLine: line) == 0)
+    }
+
     @Test func leavesOutCommentsBookmarksAndNotes() {
         var project = Project(manifest: ProjectManifest(name: "x"), files: [:])
         let a = project.createFile(kind: .draft, title: "A")

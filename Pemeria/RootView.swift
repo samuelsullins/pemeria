@@ -43,11 +43,17 @@ struct WelcomeView: View {
 
 struct ProjectView: View {
     let model: ProjectModel
+    @State private var columns = NavigationSplitViewVisibility.all
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columns) {
             SidebarView(model: model)
-                .safeAreaInset(edge: .bottom, spacing: 0) { SidebarFooter(model: model) }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    VStack(spacing: 0) {
+                        SidebarFooter(model: model)
+                        IconsPane(model: model)
+                    }
+                }
                 .navigationSplitViewColumnWidth(min: 180, ideal: 240, max: 420)
         } detail: {
             EditorPane(model: model)
@@ -60,15 +66,9 @@ struct ProjectView: View {
                 }
         }
         .navigationTitle(model.project.manifest.name)
-        .sheet(isPresented: Binding(get: { model.isEditingIcons }, set: { model.isEditingIcons = $0 })) {
-            IconEditor(model: model)
-        }
+        .onChange(of: model.iconEditorRequest) { columns = .all }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
-                Toggle(isOn: Binding(get: { model.readMode }, set: { model.readMode = $0 })) {
-                    Label("Read Mode", systemImage: model.readMode ? "eye.fill" : "eye")
-                }
-                .help("Read Mode (⇧⌘R): hide comments, outlines and bookmarks")
                 Button {
                     AppModel.shared.rightPanelVisible.toggle()
                 } label: {

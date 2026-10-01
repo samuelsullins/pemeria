@@ -96,6 +96,7 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
     /// Call when the view goes away: saves, and stops listening.
     func detach() {
         commit()
+        model?.setSelectedTextWords(nil, from: self)
         model?.unregisterEditor(self)
         observers.forEach(NotificationCenter.default.removeObserver)
         observers = []
@@ -357,6 +358,35 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
 
     func textViewDidChangeSelection(_ notification: Notification) {
         resetTypingAttributes()
+        model?.setSelectedTextWords(selectedTextWordCount(), from: self)
+    }
+
+    /// Words in the selected text, leaving out comments and marker lines; nil with no selection.
+    private func selectedTextWordCount() -> Int? {
+        guard let storage = textView.textStorage else { return nil }
+        let ranges = textView.selectedRanges.map(\.rangeValue).filter { $0.length > 0 }
+        guard !ranges.isEmpty else { return nil }
+        let string = storage.string as NSString
+        var total = 0
+        for range in ranges {
+            // Each paragraph the range touches, counted against the whole paragraph so comments are found.
+            let previousBreak = string.range(of: "\n", options: [.literal, .backwards],
+                                             range: NSRange(location: 0, length: range.location)).location
+            var lineStart = previousBreak == NSNotFound ? 0 : previousBreak + 1
+            while lineStart < NSMaxRange(range) {
+                let newline = string.range(of: "\n", options: .literal,
+                                           range: NSRange(location: lineStart, length: string.length - lineStart)).location
+                let lineEnd = newline == NSNotFound ? string.length : newline
+                let line = NSRange(location: lineStart, length: lineEnd - lineStart)
+                let part = NSIntersectionRange(range, line)
+                if part.length > 0 {
+                    total += WordCount.count(in: NSRange(location: part.location - lineStart, length: part.length),
+                                             ofLine: string.substring(with: line))
+                }
+                lineStart = lineEnd + 1
+            }
+        }
+        return total
     }
 
     /// Typing attributes come from the character before the cursor; keep only italic/bold, and

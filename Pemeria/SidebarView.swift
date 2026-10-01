@@ -285,7 +285,7 @@ struct SidebarView: NSViewRepresentable {
                 let item = submenu.addItem(withTitle: definition.name, action: #selector(toggleIcon(_:)), keyEquivalent: "")
                 item.target = self
                 item.representedObject = definition.id
-                item.image = IconBadge.symbolImage(for: definition, pointSize: 12)
+                item.image = IconSymbol.image(for: definition, pointSize: 12)
                 let having = targets.filter { $0.icons.contains(definition.id) }.count
                 item.state = having == targets.count ? .on : having > 0 ? .mixed : .off
                 // Adding needs room on at least one file.
@@ -307,7 +307,7 @@ struct SidebarView: NSViewRepresentable {
             model.toggleIcon(id, on: menuTargets)
         }
 
-        @objc private func editIcons() { model.isEditingIcons = true }
+        @objc private func editIcons() { model.showIconEditor() }
         @objc private func setWorkingFile() { model.setWorkingFile(menuTargets.first) }
         @objc private func clearWorkingFile() { model.setWorkingFile(nil) }
 
@@ -435,11 +435,13 @@ final class SidebarCell: NSTableCellView {
 
     private func updateIconTint() {
         let selected = backgroundStyle == .emphasized
+        badges.isOnSelection = selected
         icon.contentTintColor = isWorkingFile ? (selected ? .white : Theme.accent) : (selected ? .white : .secondaryLabelColor)
     }
 }
 
 /// Up to three file icons, overlapping and fanned like a hand of cards (SPEC.md §4).
+/// Each is its symbol in its colour; on a selected row each gets a thin white halo.
 final class IconFanView: NSView {
     var icons: [IconDefinition] = [] {
         didSet {
@@ -450,7 +452,11 @@ final class IconFanView: NSView {
         }
     }
 
-    static let size: CGFloat = 16
+    var isOnSelection = false {
+        didSet { if isOnSelection != oldValue { needsDisplay = true } }
+    }
+
+    static let size: CGFloat = 14
     static let step: CGFloat = 10
 
     override var intrinsicContentSize: NSSize {
@@ -468,44 +474,30 @@ final class IconFanView: NSView {
         default: [-10, 0, 10]
         }
         for (index, definition) in icons.enumerated() {
+            guard let image = IconSymbol.image(for: definition, pointSize: 11) else { continue }
+            let halo = isOnSelection ? IconSymbol.image(for: definition, pointSize: 11, color: .white) : nil
             let center = CGPoint(x: 2 + Self.size / 2 + CGFloat(index) * Self.step, y: bounds.midY)
             context.saveGState()
             context.translateBy(x: center.x, y: center.y)
             context.rotate(by: angles[index] * .pi / 180)
-            IconBadge.draw(definition, in: CGRect(x: -Self.size / 2, y: -Self.size / 2, width: Self.size, height: Self.size))
+            let rect = CGRect(x: -image.size.width / 2, y: -image.size.height / 2, width: image.size.width, height: image.size.height)
+            if let halo {
+                for (dx, dy) in [(-1.0, 0.0), (1, 0), (0, -1), (0, 1), (-0.7, -0.7), (0.7, 0.7), (-0.7, 0.7), (0.7, -0.7)] {
+                    halo.draw(in: rect.offsetBy(dx: dx, dy: dy))
+                }
+            }
+            image.draw(in: rect)
             context.restoreGState()
         }
     }
 }
 
-/// An icon drawn as a coloured disc with a white symbol: the sidebar's badge.
-enum IconBadge {
-    static func draw(_ definition: IconDefinition, in rect: CGRect) {
-        let color = NSColor(hex: definition.color) ?? .secondaryLabelColor
-        NSGraphicsContext.saveGraphicsState()
-        let shadow = NSShadow()
-        shadow.shadowColor = NSColor.black.withAlphaComponent(0.35)
-        shadow.shadowBlurRadius = 1.5
-        shadow.shadowOffset = NSSize(width: 0, height: -0.5)
-        shadow.set()
-        color.setFill()
-        NSBezierPath(ovalIn: rect).fill()
-        NSGraphicsContext.restoreGraphicsState()
-
-        let configuration = NSImage.SymbolConfiguration(pointSize: rect.height * 0.5, weight: .bold)
-            .applying(.init(paletteColors: [.white]))
-        if let symbol = NSImage(systemSymbolName: definition.symbol, accessibilityDescription: definition.name)?
-            .withSymbolConfiguration(configuration) {
-            let size = symbol.size
-            symbol.draw(in: CGRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2, width: size.width, height: size.height))
-        }
-    }
-
-    /// The symbol alone, in the icon's colour, for menus.
-    static func symbolImage(for definition: IconDefinition, pointSize: CGFloat) -> NSImage? {
-        let color = NSColor(hex: definition.color) ?? .secondaryLabelColor
+/// An icon's symbol as an image in its colour (or another).
+enum IconSymbol {
+    static func image(for definition: IconDefinition, pointSize: CGFloat, color: NSColor? = nil) -> NSImage? {
+        let color = color ?? NSColor(hex: definition.color) ?? .secondaryLabelColor
         return NSImage(systemSymbolName: definition.symbol, accessibilityDescription: definition.name)?
-            .withSymbolConfiguration(.init(pointSize: pointSize, weight: .regular).applying(.init(paletteColors: [color])))
+            .withSymbolConfiguration(.init(pointSize: pointSize, weight: .semibold).applying(.init(paletteColors: [color])))
     }
 }
 

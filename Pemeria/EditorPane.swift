@@ -33,8 +33,8 @@ struct EditorPane: View {
     }
 }
 
-/// The file name above the editor, with the one-click copy button in its corner.
-/// With one file selected the name is editable in place (SPEC.md §12).
+/// The file name above the editor, with Read Mode and one-click copy in its corner.
+/// With one file selected the name is editable in place, and its icons sit beside it (SPEC.md §12).
 private struct EditorHeader: View {
     let model: ProjectModel
     let files: [PemeriaFile]
@@ -42,8 +42,11 @@ private struct EditorHeader: View {
     var body: some View {
         ZStack {
             if files.count == 1, let file = files.first {
-                HeaderTitleField(model: model, file: file)
-                    .id(file.id)
+                HStack(spacing: 6) {
+                    HeaderIconsButton(model: model, fileID: file.id)
+                    HeaderTitleField(model: model, file: file)
+                        .id(file.id)
+                }
             } else {
                 Text(files.map(\.title).joined(separator: ", "))
                     .font(.headline)
@@ -52,11 +55,22 @@ private struct EditorHeader: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, 48)
+        .padding(.horizontal, 72)
         .padding(.vertical, 8)
         .overlay(alignment: .trailing) {
-            CopyButton(help: files.count == 1 ? "Copy Draft Text" : "Copy Draft Text of All \(files.count) Files") {
-                model.copyDraftText(of: files.map(\.id))
+            HStack(spacing: 10) {
+                Button {
+                    model.readMode.toggle()
+                } label: {
+                    Image(systemName: model.readMode ? "eye.fill" : "eye")
+                        .foregroundStyle(model.readMode ? Theme.accentColor : Color.secondary)
+                        .frame(width: 18)
+                }
+                .buttonStyle(.borderless)
+                .help(model.readMode ? "Exit Read Mode (⇧⌘R)" : "Read Mode (⇧⌘R): hide comments, outlines and bookmarks")
+                CopyButton(help: files.count == 1 ? "Copy Draft Text" : "Copy Draft Text of All \(files.count) Files") {
+                    model.copyDraftText(of: files.map(\.id))
+                }
             }
             .padding(.trailing, 12)
         }
@@ -71,11 +85,20 @@ private struct HeaderTitleField: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        TextField("Name", text: $text)
-            .textFieldStyle(.plain)
+        // Sized to the name (the hidden text), so the icons can sit right beside it.
+        Text(text.isEmpty ? "Name" : text)
             .font(.headline)
-            .multilineTextAlignment(.center)
-            .focused($focused)
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, 3)
+            .hidden()
+            .overlay {
+                TextField("Name", text: $text)
+                    .textFieldStyle(.plain)
+                    .font(.headline)
+                    .multilineTextAlignment(.center)
+                    .focused($focused)
+            }
             .onAppear { text = file.title }
             .onChange(of: file.title) { _, title in
                 if !focused { text = title }
@@ -135,10 +158,15 @@ private struct WordCountBar: View {
     var body: some View {
         let counts = model.wordCounts
         let hasDrafts = model.selection.contains { model.project.files[$0]?.kind == .draft }
+        let label = if let selected = model.selectedTextWords {
+            "\(Self.words(selected)) selected"
+        } else {
+            hasDrafts ? Self.words(counts.selectedDraft) : "Notes aren’t counted"
+        }
         Button {
             showingDetails.toggle()
         } label: {
-            Text(hasDrafts ? Self.words(counts.selectedDraft) : "Notes aren’t counted")
+            Text(label)
                 .font(.system(size: 11))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)

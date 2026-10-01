@@ -25,6 +25,28 @@ public enum WordCount {
         return count
     }
 
+    /// Words in part of a paragraph, leaving out comments. Takes the whole paragraph so a
+    /// comment is recognised even when `range` starts partway into it.
+    public static func count(in range: NSRange, ofLine line: String) -> Int {
+        let text = line as NSString
+        let range = NSIntersectionRange(range, NSRange(location: 0, length: text.length))
+        guard range.length > 0 else { return 0 }
+        var kept = ""
+        var cursor = range.location
+        for comment in Comments.ranges(in: line) {
+            let start = max(comment.location, cursor)
+            let end = min(NSMaxRange(comment), NSMaxRange(range))
+            guard start < end else { continue }
+            if start > cursor { kept += text.substring(with: NSRange(location: cursor, length: start - cursor)) }
+            kept += " "
+            cursor = end
+        }
+        if cursor < NSMaxRange(range) {
+            kept += text.substring(with: NSRange(location: cursor, length: NSMaxRange(range) - cursor))
+        }
+        return count(kept)
+    }
+
     /// Words in a body or outline, leaving out comments.
     public static func count(_ blocks: [Block]) -> Int {
         blocks.reduce(0) { total, block in
