@@ -56,7 +56,7 @@ Files are named by their ID, not their title, so renaming a file only changes a 
 id: k3f9a2
 title: The Lighthouse
 parent: p81xq0
-order: a0V
+order: V
 kind: draft
 icons: inciting-incident, crisis
 ---
@@ -74,7 +74,7 @@ Mara reaches the lighthouse. Finds the logbook. Storm hits.
 - **Comments** are stored exactly as typed (see §6).
 - **Bookmarks and the outline divider** are stored as `<!-- … -->` lines. Markdown viewers hide those, so the file stays clean to read.
 - **Escaping:** if the prose itself contains a literal `*`, `\`, or `<!--`, it's saved with a backslash in front (`\*`), so it's never mistaken for formatting.
-- **Order** uses sortable keys (`a0`, `a0V`, `a1`). Moving one file between two others only rewrites that one file.
+- **Order** uses sortable keys (`V`, `k`, `kV`…). There's always room for a new key between two others, so moving a file only rewrites that one file.
 - **Notes have no outline section.** If a draft is converted to a note, its outline stays saved in the file but hidden. It reappears if the file is switched back to a draft. Nothing is lost.
 
 ### project.json
@@ -249,6 +249,7 @@ Font, size, line height, indent size, editor width, light/dark theme.
 
 ## 14. Technical approach
 
+- **Code layout:** the file format, the project package and the tree live in `PemeriaCore/`, a Swift package with its own tests (`swift test`). The app target uses it.
 - **Swift. SwiftUI for the window and panels. AppKit's text view (TextKit 2) for the editor.** SwiftUI's own text editor isn't capable enough for this.
 - **Mac-only target.** The starter Xcode project currently also targets iOS and visionOS; turn those off for now.
 - **One text view shows all selected files.** Behind it, a map records which part of the text belongs to which file (and which part is that file's outline). Each edit is checked against that map: edits inside one part go to that file's model, and edits that cross a boundary are refused (§5). Using a single text view is what makes selecting and copying across files work naturally. TextKit 2 only lays out what's on screen, so showing a whole novel stays fast.
