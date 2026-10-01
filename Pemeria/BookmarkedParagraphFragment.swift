@@ -41,10 +41,12 @@ final class BookmarkedParagraphFragment: NSTextLayoutFragment {
         guard let paragraph = textElement as? NSTextParagraph else { return [] }
         let text = paragraph.attributedString
         var perLine: [Int: Int] = [:]
+        let lines = textLineFragments
         return bookmarks.compactMap { index, bookmark in
-            guard let (lineIndex, line) = textLineFragments.enumerated().first(where: {
+            // A blank line holding only a bookmark still has one line fragment; fall back to it.
+            guard let (lineIndex, line) = lines.enumerated().first(where: {
                 NSLocationInRange(index, $0.element.characterRange) || index == NSMaxRange($0.element.characterRange)
-            }) else { return nil }
+            }) ?? lines.enumerated().first else { return nil }
             let font = (index < text.length ? text.attribute(.font, at: index, effectiveRange: nil) as? NSFont : nil)
                 ?? NSFont.systemFont(ofSize: 16)
             let bounds = line.typographicBounds
@@ -74,10 +76,16 @@ final class BookmarkedParagraphFragment: NSTextLayoutFragment {
         let marginWidth = (textLayoutManager?.textContainer?.textView?.textContainerInset.width ?? 0)
         let marks = marks()
 
+        // On a line with no words, the margin icon says it all; skip the tick.
+        let hasWords = (textElement as? NSTextParagraph)?.attributedString.string
+            .contains { !$0.isWhitespace && $0 != TextBridge.bookmarkCharacter } ?? true
+
         for mark in marks {
-            let tick = mark.tickRect.offsetBy(dx: point.x, dy: point.y)
-            accent.withAlphaComponent(0.55).setFill()
-            NSBezierPath(roundedRect: tick, xRadius: 0.75, yRadius: 0.75).fill()
+            if hasWords {
+                let tick = mark.tickRect.offsetBy(dx: point.x, dy: point.y)
+                accent.withAlphaComponent(0.55).setFill()
+                NSBezierPath(roundedRect: tick, xRadius: 0.75, yRadius: 0.75).fill()
+            }
 
             let icon = mark.iconRect.offsetBy(dx: point.x, dy: point.y)
             symbol?.draw(in: icon)

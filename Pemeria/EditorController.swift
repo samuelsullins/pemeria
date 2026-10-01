@@ -22,6 +22,8 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
     /// The model's `contentToken` when this text was loaded; a newer one means reload.
     private var loadedToken = -1
     private var handledJumpID = -1
+    /// True while removing a bookmark on purpose, so the step-over-bookmarks rule lets it through.
+    private var isDeletingBookmark = false
     private var dirty: Set<FileID> = []
     private var saveTimer: Timer?
     /// True while replacing the whole text or refreshing display, so storage callbacks ignore it.
@@ -176,7 +178,41 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
             flashBlocked()
             return false
         }
+        // Backspace/Delete next to a bookmark deletes the character beyond it, not the bookmark:
+        // bookmarks are only removed on purpose (from the margin popup or the panel).
+        if !isDeletingBookmark, affectedRanges.count == 1, replacementStrings?.first == "",
+           let beyond = deletionSteppingOverBookmarks(affectedRanges[0].rangeValue) {
+            DispatchQueue.main.async { [weak self] in self?.delete(beyond) }
+            return false
+        }
         return true
+    }
+
+    private func isBookmark(at index: Int) -> Bool {
+        guard let storage = textView.textStorage, index >= 0, index < storage.length else { return false }
+        return storage.attribute(.pemeriaBookmark, at: index, effectiveRange: nil) != nil
+    }
+
+    /// For a one-character deletion that would hit only bookmark characters, the character
+    /// just past them in the direction of the deletion (nil if the deletion is fine as it is).
+    private func deletionSteppingOverBookmarks(_ range: NSRange) -> NSRange? {
+        guard range.length >= 1, (range.location..<NSMaxRange(range)).allSatisfy(isBookmark(at:)),
+              let segment = segments.first(where: { $0.contains(range) }) else { return nil }
+        let cursor = textView.selectedRange().location
+        let backward = cursor >= NSMaxRange(range)
+        var index = backward ? range.location - 1 : NSMaxRange(range)
+        while isBookmark(at: index) { index += backward ? -1 : 1 }
+        let next = NSRange(location: index, length: 1)
+        // Nothing left to delete in this file: do nothing (rather than remove the bookmark).
+        return segment.contains(next) ? next : NSRange(location: NSNotFound, length: 0)
+    }
+
+    private func delete(_ range: NSRange) {
+        guard range.location != NSNotFound, let storage = textView.textStorage,
+              NSMaxRange(range) <= storage.length,
+              textView.shouldChangeText(in: range, replacementString: "") else { return }
+        storage.replaceCharacters(in: range, with: "")
+        textView.didChangeText()
     }
 
     func textStorage(_ textStorage: NSTextStorage, didProcessEditing editedMask: NSTextStorageEditActions, range editedRange: NSRange, changeInLength delta: Int) {
@@ -335,7 +371,8 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
             if let mark = fragment.marks().first(where: {
                 $0.iconRect.offsetBy(dx: frameOrigin.x, dy: frameOrigin.y).insetBy(dx: -4, dy: -4).contains(containerPoint)
             }) {
-                showBookmarkMenu(for: mark.bookmark, at: point)
+                let icon = mark.iconRect.offsetBy(dx: frameOrigin.x + origin.x, dy: frameOrigin.y + origin.y)
+                showBookmarkEditor(for: mark.bookmark, iconRect: icon)
                 return true
             }
         }
@@ -401,6 +438,8 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
 
     /// Removes a bookmark (undoable, like any edit).
     private func deleteBookmark(id: String) {
+        isDeletingBookmark = true
+        defer { isDeletingBookmark = false }
         guard textView.isEditable, let storage = textView.textStorage, let range = bookmarkRange(id: id),
               textView.shouldChangeText(in: range, replacementString: "") else { return }
         storage.replaceCharacters(in: range, with: "")
@@ -466,42 +505,24 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         textView.window?.makeFirstResponder(textView)
     }
 
-    private func showBookmarkMenu(for bookmark: Bookmark, at point: NSPoint) {
-        let menu = NSMenu()
-        let title = NSMenuItem(title: bookmark.name.isEmpty ? "Bookmark" : bookmark.name, action: nil, keyEquivalent: "")
-        title.isEnabled = false
-        menu.addItem(title)
-        menu.addItem(.separator())
-        for (label, action) in [("Rename…", #selector(renameBookmarkFromMenu(_:))), ("Delete Bookmark", #selector(deleteBookmarkFromMenu(_:)))] {
-            let item = NSMenuItem(title: label, action: action, keyEquivalent: "")
-            item.target = self
-            item.representedObject = bookmark.id
-            item.isEnabled = textView.isEditable
-            menu.addItem(item)
-        }
-        menu.autoenablesItems = false
-        menu.popUp(positioning: nil, at: point, in: textView)
-    }
-
-    @objc private func deleteBookmarkFromMenu(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? String else { return }
-        deleteBookmark(id: id)
-    }
-
-    @objc private func renameBookmarkFromMenu(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? String, let range = bookmarkRange(id: id),
-              let marker = textView.textStorage?.attribute(.pemeriaBookmark, at: range.location, effectiveRange: nil) as? BookmarkMarker
-        else { return }
-        let anchor = caretRect(at: range.location) ?? NSRect(x: textView.textContainerOrigin.x, y: textView.visibleRect.midY, width: 1, height: 20)
-        let edge: NSRectEdge = anchor.midY > textView.visibleRect.midY ? .minY : .maxY
-        BookmarkNamePrompt.show(relativeTo: anchor, of: textView, preferredEdge: edge, initialName: marker.bookmark.name) { [weak self] name in
-            guard let self, !name.isEmpty, let storage = self.textView.textStorage, let range = self.bookmarkRange(id: id),
+    /// Clicking a margin icon: a popup with the full name ready to edit, and a Delete button.
+    private func showBookmarkEditor(for bookmark: Bookmark, iconRect: CGRect) {
+        guard textView.isEditable else { return }
+        let edge: NSRectEdge = iconRect.midY > textView.visibleRect.midY ? .minY : .maxY
+        BookmarkNamePrompt.show(
+            relativeTo: iconRect,
+            of: textView,
+            preferredEdge: edge,
+            initialName: bookmark.name,
+            onDelete: { [weak self] in self?.deleteBookmark(id: bookmark.id) }
+        ) { [weak self] name in
+            guard let self, !name.isEmpty, name != bookmark.name, let storage = self.textView.textStorage,
+                  let range = self.bookmarkRange(id: bookmark.id),
                   self.textView.shouldChangeText(in: range, replacementString: nil) else { return }
-            var renamed = marker.bookmark
+            var renamed = bookmark
             renamed.name = name
             storage.addAttribute(.pemeriaBookmark, value: BookmarkMarker(renamed), range: range)
             self.textView.didChangeText()
-            self.textView.window?.makeFirstResponder(self.textView)
         }
     }
 
@@ -737,26 +758,28 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
     // MARK: Remembering your place
 
     /// The cursor's rectangle in text view coordinates, laying out text up to it if needed.
+    /// Measured from the paragraph's own line layout, the same way the margin bookmark icons are placed.
     private func caretRect(at location: Int) -> CGRect? {
-        if let window = textView.window {
-            var actual = NSRange()
-            let screen = textView.firstRect(forCharacterRange: NSRange(location: location, length: 0), actualRange: &actual)
-            if screen != .zero {
-                let rect = textView.convert(window.convertFromScreen(screen), from: nil)
-                if rect.height > 0 { return rect }
-            }
-        }
         guard let layout = textView.textLayoutManager, let content = textView.textContentStorage,
               let target = content.location(content.documentRange.location, offsetBy: location),
               let upToTarget = NSTextRange(location: content.documentRange.location, end: target) else { return nil }
         layout.ensureLayout(for: upToTarget)
-        var rect: CGRect?
-        layout.enumerateTextSegments(in: NSTextRange(location: target), type: .standard, options: []) { _, frame, _, _ in
-            rect = frame
-            return false
-        }
+        guard let fragment = layout.textLayoutFragment(for: target) else { return nil }
+        let paragraphStart = content.offset(from: content.documentRange.location, to: fragment.rangeInElement.location)
+        let index = location - paragraphStart
+        let lines = fragment.textLineFragments
+        guard let line = lines.first(where: {
+            NSLocationInRange(index, $0.characterRange) || index == NSMaxRange($0.characterRange)
+        }) ?? lines.last else { return nil }
+        let bounds = line.typographicBounds
+        let frame = fragment.layoutFragmentFrame
         let origin = textView.textContainerOrigin
-        return rect.map { $0.offsetBy(dx: origin.x, dy: origin.y) }
+        return CGRect(
+            x: origin.x + frame.minX + bounds.minX + line.locationForCharacter(at: index).x,
+            y: origin.y + frame.minY + bounds.minY,
+            width: 1,
+            height: max(bounds.height, 1)
+        )
     }
 
     private func recordPosition() {
