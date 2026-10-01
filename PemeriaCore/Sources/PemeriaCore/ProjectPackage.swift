@@ -117,6 +117,20 @@ public struct ProjectPackage: Sendable {
         try encoder.encode(manifest).write(to: manifestURL, options: .atomic)
     }
 
+    var stateURL: URL { url.appending(path: "state.json") }
+
+    /// The saved window state, or nil if there is none or it can't be read.
+    public func loadState() -> ProjectState? {
+        guard let data = try? Data(contentsOf: stateURL) else { return nil }
+        return try? JSONDecoder().decode(ProjectState.self, from: data)
+    }
+
+    public func writeState(_ state: ProjectState) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(state).write(to: stateURL, options: .atomic)
+    }
+
     /// Writes one file, unless the file on disk already has exactly this content.
     public func write(_ file: PemeriaFile) throws {
         let data = Data(FileCodec.encode(file).utf8)

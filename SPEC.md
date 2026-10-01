@@ -111,7 +111,7 @@ Mara reaches the lighthouse. Finds the logbook. Storm hits.
 └──────────┴───────────────────────────────────┴────────────┘
 ```
 
-The sidebar and the right panel each toggle on and off.
+The sidebar and the right panel each toggle on and off. One project is open at a time **(assumed)**; File → Open Recent switches between projects, and the last project reopens on launch.
 
 ---
 
@@ -125,7 +125,8 @@ The sidebar and the right panel each toggle on and off.
 - **File icons:** up to 3 per file. They're drawn slightly overlapping, fanned like playing cards, to save room. Assign them from the right-click menu. Icons are defined per project (name, color, symbol) and you can make as many as you like. The defaults are the five story beats in §2. *Where you create and edit icon definitions (assumed: a small sheet reached from the right-click menu → "Edit Icons…").*
 - **Working File:** shown with a **fat arrow** glyph. Only one file per project can be the Working File (see §8).
 - **New file:** ⌘N creates a draft below the current selection. ⌥⌘N creates a note **(assumed)**.
-- **Delete:** moves the file to the project's trash (§11). It is never deleted permanently from here.
+- **Delete** (Delete key, or right-click → Move to Trash…): asks first, then moves the file to the project's trash (§11). Anything nested inside it goes too, and the confirmation says how many. It is never deleted permanently from here.
+- **Right-click** acts on the whole selection if you click a selected file, or on just the clicked file otherwise (as in Finder).
 
 ---
 
