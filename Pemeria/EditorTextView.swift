@@ -22,6 +22,12 @@ final class EditorTextView: NSTextView {
         if textContainerInset != inset { textContainerInset = inset }
     }
 
+    override func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        if became { controller?.didBecomeFirstResponder() }
+        return became
+    }
+
     override func mouseDown(with event: NSEvent) {
         if controller?.handleClick(at: convert(event.locationInWindow, from: nil)) == true { return }
         super.mouseDown(with: event)

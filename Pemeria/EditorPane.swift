@@ -2,32 +2,63 @@ import AppKit
 import PemeriaCore
 import SwiftUI
 
-/// The right-hand side of the window: the file name(s), the editor, and (when pinned) the outline pane.
-struct EditorPane: View {
+/// The right-hand side of the window: one editor pane, or two side by side (SPEC.md §12).
+struct EditorArea: View {
     let model: ProjectModel
 
     var body: some View {
-        let selected = Set(model.selection)
-        let files = model.project.tree.bookOrder.filter(selected.contains).compactMap { model.project.files[$0] }
-        if files.isEmpty {
-            ContentUnavailableView("No File Selected", systemImage: "doc.text", description: Text("Select a file in the sidebar."))
+        if model.isSplit {
+            HStack(spacing: 0) {
+                EditorPane(model: model, pane: 0)
+                Divider()
+                EditorPane(model: model, pane: 1)
+            }
         } else {
-            VStack(spacing: 0) {
-                EditorHeader(model: model, files: files)
-                Divider()
-                if model.readMode {
-                    EditorView(model: model, mode: .reading)
-                } else if model.outlinePinned {
-                    OutlineSplit {
-                        EditorView(model: model, mode: .bodies)
-                    } bottom: {
-                        PinnedOutlinePane(model: model, hasOutlines: files.contains { $0.kind == .draft })
+            EditorPane(model: model, pane: 0)
+        }
+    }
+}
+
+/// One editor pane: the file name(s), the editor, (when pinned) the outline pane, and the word count.
+struct EditorPane: View {
+    let model: ProjectModel
+    let pane: Int
+
+    var body: some View {
+        let selected = Set(model.selection(forPane: pane))
+        let files = model.project.tree.bookOrder.filter(selected.contains).compactMap { model.project.files[$0] }
+        // While split, the active pane wears a coral bar along its top.
+        let isActive = model.isSplit && model.activePane == pane
+        Group {
+            if files.isEmpty {
+                ContentUnavailableView("No File Selected", systemImage: "doc.text", description: Text("Select a file in the sidebar."))
+                    .contentShape(Rectangle())
+                    .onTapGesture { model.activate(pane: pane) }
+            } else {
+                VStack(spacing: 0) {
+                    EditorHeader(model: model, files: files)
+                        .contentShape(Rectangle())
+                        .simultaneousGesture(TapGesture().onEnded { model.activate(pane: pane) })
+                    Divider()
+                    if model.readMode {
+                        EditorView(model: model, mode: .reading, pane: pane)
+                    } else if model.outlinePinned {
+                        OutlineSplit {
+                            EditorView(model: model, mode: .bodies, pane: pane)
+                        } bottom: {
+                            PinnedOutlinePane(model: model, pane: pane, hasOutlines: files.contains { $0.kind == .draft })
+                        }
+                    } else {
+                        EditorView(model: model, mode: .full, pane: pane)
                     }
-                } else {
-                    EditorView(model: model, mode: .full)
+                    Divider()
+                    WordCountBar(model: model, pane: pane, files: files.map(\.id))
                 }
-                Divider()
-                WordCountBar(model: model)
+            }
+        }
+        .overlay(alignment: .top) {
+            if isActive {
+                Theme.accentColor.frame(height: 2)
             }
         }
     }
@@ -153,12 +184,14 @@ struct CopyButton: View {
 /// The word count of the selected drafts' text; click for the full breakdown (SPEC.md §10).
 private struct WordCountBar: View {
     let model: ProjectModel
+    let pane: Int
+    let files: [FileID]
     @State private var showingDetails = false
 
     var body: some View {
-        let counts = model.wordCounts
-        let hasDrafts = model.selection.contains { model.project.files[$0]?.kind == .draft }
-        let label = if let selected = model.selectedTextWords {
+        let counts = model.wordCounts(selected: files)
+        let hasDrafts = files.contains { model.project.files[$0]?.kind == .draft }
+        let label = if let selected = model.selectedTextWords, !model.isSplit || model.selectedTextPane == pane {
             "\(Self.words(selected)) selected"
         } else {
             hasDrafts ? Self.words(counts.selectedDraft) : "Notes aren’t counted"
@@ -249,6 +282,7 @@ private struct OutlineSplit<Top: View, Bottom: View>: View {
 /// The selected drafts' outlines, stacked, each labeled with its file (SPEC.md §9).
 private struct PinnedOutlinePane: View {
     let model: ProjectModel
+    let pane: Int
     let hasOutlines: Bool
 
     var body: some View {
@@ -271,7 +305,7 @@ private struct PinnedOutlinePane: View {
             .padding(.vertical, 6)
             Divider()
             if hasOutlines {
-                EditorView(model: model, mode: .outlines)
+                EditorView(model: model, mode: .outlines, pane: pane)
             } else {
                 Text("Notes don’t have outlines.")
                     .foregroundStyle(.secondary)
@@ -284,9 +318,10 @@ private struct PinnedOutlinePane: View {
 struct EditorView: NSViewRepresentable {
     let model: ProjectModel
     let mode: EditorMode
+    let pane: Int
 
     func makeCoordinator() -> EditorController {
-        EditorController(mode: mode)
+        EditorController(mode: mode, pane: pane)
     }
 
     func makeNSView(context: Context) -> NSScrollView {

@@ -128,6 +128,21 @@ public struct Project: Sendable {
         return removed
     }
 
+    /// Brings a file back from the trash, at the end of its old parent's children (or the top
+    /// level if that parent is gone). It gets a new id if its old one has been reused.
+    /// Returns the restored file first, then any others whose order changed.
+    public mutating func restore(_ file: PemeriaFile) -> [PemeriaFile] {
+        var file = file
+        if files[file.id] != nil { file.id = FileID.generate(avoiding: files.keys) }
+        if let parent = file.parent, files[parent] == nil { file.parent = nil }
+        if file.kind == .draft, file.outline == nil { file.outline = [] }
+        let index = children(of: file.parent).count
+        files[file.id] = file
+        let changed = place([file.id], in: file.parent, at: index)
+        let restored = files[file.id]!
+        return [restored] + changed.filter { $0.id != restored.id }
+    }
+
     /// Puts `ids` (in that order) at `index` among `parent`'s current children and gives them
     /// order keys. Only the moved files change, unless the neighbours' keys leave no room,
     /// in which case the whole sibling list is renumbered.

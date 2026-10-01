@@ -274,7 +274,15 @@ struct SidebarView: NSViewRepresentable {
                 }
             }
             menu.addItem(.separator())
+            if menuTargets.count == 1 {
+                menu.addItem(withTitle: "Browse Snapshots…", action: #selector(browseSnapshots), keyEquivalent: "").target = self
+            }
             menu.addItem(withTitle: "Move to Trash…", action: #selector(trashClicked), keyEquivalent: "").target = self
+        }
+
+        @objc private func browseSnapshots() {
+            model.commitEditors()
+            model.historyFile = menuTargets.first
         }
 
         /// "Icons ▸" with a checkable item per icon, then "Edit Icons…".

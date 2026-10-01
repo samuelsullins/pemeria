@@ -56,7 +56,7 @@ struct ProjectView: View {
                 }
                 .navigationSplitViewColumnWidth(min: 180, ideal: 240, max: 420)
         } detail: {
-            EditorPane(model: model)
+            EditorArea(model: model)
                 .inspector(isPresented: Binding(
                     get: { AppModel.shared.rightPanelVisible },
                     set: { AppModel.shared.rightPanelVisible = $0 }
@@ -67,6 +67,19 @@ struct ProjectView: View {
         }
         .navigationTitle(model.project.manifest.name)
         .onChange(of: model.iconEditorRequest) { columns = .all }
+        .overlay {
+            if model.isSearching {
+                SearchOverlay(model: model)
+            }
+        }
+        .sheet(isPresented: Binding(get: { model.historyFile != nil }, set: { if !$0 { model.historyFile = nil } })) {
+            if let id = model.historyFile {
+                SnapshotBrowser(model: model, fileID: id)
+            }
+        }
+        .sheet(isPresented: Binding(get: { model.isShowingTrash }, set: { model.isShowingTrash = $0 })) {
+            TrashBrowser(model: model)
+        }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 Button {
@@ -99,6 +112,13 @@ private struct SidebarFooter: View {
             .fixedSize()
             .help("New Draft (⌘N). Hold for a note.")
             Spacer()
+            Button {
+                model.isShowingTrash = true
+            } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .help("Show Trash")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)

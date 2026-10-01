@@ -75,6 +75,16 @@ struct PemeriaCommands: Commands {
                 Button("Clear Menu") { app.clearRecentProjects() }
                     .disabled(app.recentProjects.isEmpty)
             }
+            Divider()
+            Button("Browse Snapshots…") {
+                if let project = app.project {
+                    project.commitEditors()
+                    project.historyFile = project.selection.first
+                }
+            }
+            .disabled(app.project?.selection.count != 1)
+            Button("Show Trash") { app.project?.isShowingTrash = true }
+                .disabled(app.project == nil)
         }
 
         CommandGroup(after: .pasteboard) {
@@ -95,6 +105,11 @@ struct PemeriaCommands: Commands {
             }
             .keyboardShortcut("r", modifiers: [.command, .shift])
             .disabled(app.project == nil)
+            Button(app.project?.isSplit == true ? "Close Split View" : "Split View") {
+                app.project?.toggleSplit()
+            }
+            .keyboardShortcut("\\")
+            .disabled(app.project == nil)
             Button(app.project?.outlinePinned == true ? "Unpin Outline" : "Pin Outline") {
                 if let project = app.project { project.outlinePinned.toggle() }
             }
@@ -103,6 +118,10 @@ struct PemeriaCommands: Commands {
         }
 
         CommandMenu("Navigate") {
+            Button("Search Everything…") { app.project?.isSearching = true }
+                .keyboardShortcut("k")
+                .disabled(app.project == nil)
+            Divider()
             Button("Jump to Working File") { app.project?.jumpToWorkingFile() }
                 .keyboardShortcut("j")
                 .disabled(app.project?.project.manifest.workingFile == nil)

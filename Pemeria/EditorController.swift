@@ -15,6 +15,8 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
 
     private weak var model: ProjectModel?
     private(set) var mode: EditorMode
+    /// Which split-view pane this editor belongs to (0 when not split).
+    let pane: Int
     private(set) var shown: [ShownFile] = []
     private var segments: [EditorSegment] = []
     private var markers: [EditorMarker] = []
@@ -38,8 +40,9 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
     /// The pinned outline pane doesn't take part in remembering your place; the main editor does.
     private var remembersPosition: Bool { mode == .full || mode == .bodies }
 
-    init(mode: EditorMode) {
+    init(mode: EditorMode, pane: Int) {
         self.mode = mode
+        self.pane = pane
         textView = EditorTextView(usingTextLayoutManager: true)
         super.init()
 
@@ -96,7 +99,7 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
     /// Call when the view goes away: saves, and stops listening.
     func detach() {
         commit()
-        model?.setSelectedTextWords(nil, from: self)
+        model?.setSelectedTextWords(nil, from: self, pane: pane)
         model?.unregisterEditor(self)
         observers.forEach(NotificationCenter.default.removeObserver)
         observers = []
@@ -113,7 +116,7 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
             model.registerEditor(self) { [weak self] in self?.commit() }
         }
 
-        let selected = Set(model.selection)
+        let selected = Set(model.selection(forPane: pane))
         let files = model.project.tree.bookOrder.filter(selected.contains).compactMap { model.project.files[$0] }
         let key = files.map { ShownFile(id: $0.id, kind: $0.kind) }
         if key != shown || mode != self.mode || model.contentToken != loadedToken {
@@ -127,10 +130,20 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         handleFocusRequest(model.focusRequest)
     }
 
+    private var isInActivePane: Bool {
+        guard let model else { return false }
+        return !model.isSplit || model.activePane == pane
+    }
+
+    /// Clicking into an editor makes its pane the active one.
+    func didBecomeFirstResponder() {
+        model?.activate(pane: pane)
+    }
+
     /// The main editor takes keyboard focus when asked (e.g. after ⌘J).
     private func handleFocusRequest(_ request: Int) {
         defer { handledFocusRequest = request }
-        guard let handled = handledFocusRequest, handled != request, mode != .outlines else { return }
+        guard let handled = handledFocusRequest, handled != request, mode != .outlines, isInActivePane else { return }
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.textView.window?.makeFirstResponder(self.textView)
@@ -358,7 +371,7 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
 
     func textViewDidChangeSelection(_ notification: Notification) {
         resetTypingAttributes()
-        model?.setSelectedTextWords(selectedTextWordCount(), from: self)
+        model?.setSelectedTextWords(selectedTextWordCount(), from: self, pane: pane)
     }
 
     /// Words in the selected text, leaving out comments and marker lines; nil with no selection.
@@ -524,7 +537,7 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
 
     /// Moves to a comment or bookmark chosen in the right panel, if it's in this editor.
     private func handlePendingJump() {
-        guard let model, let request = model.jumpRequest, request.id != handledJumpID else { return }
+        guard let model, let request = model.jumpRequest, request.id != handledJumpID, isInActivePane else { return }
         let role: EditorSegment.Role = request.location.inOutline ? .outline : .body
         guard mode != .reading, segments.contains(where: { $0.fileID == request.location.fileID && $0.role == role }) else { return }
         handledJumpID = request.id

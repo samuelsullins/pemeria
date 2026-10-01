@@ -225,8 +225,9 @@ Font, size, alignment (justified by default, or left), line height, indent size,
 
 - **Always saved.** There is no ⌘S to remember. Changes are written when you pause typing (about 1 second), when you switch files, when the app goes to the background, and on quit.
 - **Safe writes:** each save writes a new copy, then swaps it in. A crash mid-save leaves the previous version intact.
-- **Snapshots:** each changed file gets an automatic copy in `snapshots/`, at most every ~10 minutes while you're editing it, plus before any risky operation such as delete or note/draft conversion. *A screen for browsing and restoring snapshots comes after the core editor; snapshots start being recorded from day one.*
-- **Trash:** deleted files go to the project's `trash/`. They're restorable, and permanently deleted only by an explicit "Empty Trash".
+- **Snapshots:** each changed file gets an automatic copy in `snapshots/`, at most every ~10 minutes while you're editing it, plus before any risky operation such as delete or note/draft conversion.
+  - **Browse Snapshots…** (right-click a file, or the File menu with one file selected) lists its snapshots by date beside a read-only preview of the text and outline. **Restore This Version** puts that text back; the current text is snapshotted first, so a restore can itself be undone.
+- **Trash:** deleted files go to the project's `trash/`. **Show Trash** (the trash button under the file list, or the File menu) lists them with a preview. **Restore** brings a file back to the end of its old parent, or the top level if that parent is gone. **Empty Trash…** asks, then permanently deletes everything in the trash along with those files' snapshots.
 - **Backups:** the package layout is plain files, so Time Machine backs it up cleanly.
 
 ---
@@ -234,13 +235,17 @@ Font, size, alignment (justified by default, or left), line height, indent size,
 ## 12. Other features
 
 - **Header:** shows the file name. Click and type to rename it when one file is selected; Return or clicking away saves, Esc puts the old name back. With one file selected, its icons and Working File arrow sit just left of the name (click them to change them, §4). With several selected it shows "Name, Name, …", can't be edited, and shows no icons. The header's right corner holds the **Read mode** eye and the **copy** button.
-- **Split view:** two editor panes side by side, one of them active (clearly highlighted). Selecting in the sidebar changes what the **active** pane shows, and clicking into a pane makes the sidebar show that pane's selection. Toggle with **⌘\\** **(assumed)**.
+- **Split view:** two editor panes side by side, one of them active (clearly highlighted). Selecting in the sidebar changes what the **active** pane shows, and clicking into a pane makes the sidebar show that pane's selection. Toggle with **⌘\\** **(assumed)** (View → Split View).
+  - The active pane has a coral bar along its top. Each pane has its own header, word count and (when pinned) outline pane; Read mode and pinning apply to both.
+  - Split view isn't remembered between launches yet **(assumed)**.
 - **Read mode** (the eye in the editor header, **⇧⌘R** **(assumed)**) hides comments, outlines and bookmarks, so you can just read the draft. Read mode is **read-only (assumed)**: editing while things are hidden risks deleting text you can't see. Exit Read mode to edit.
 - **One-click copy:** a copy button in the top corner of every file. It copies the **draft text only**, with no comments, bookmarks or outline. The copy is formatted text (italics, bold, curly quotes), so it pastes cleanly into Word, Google Docs or email, and also includes a plain-text version.
   - The button in the header's corner copies **all selected files**. When several are shown, each file's dashed header line also has its own copy icon for just that file.
   - The copy uses the editor's font at 12 pt, with book-style first-line indents for drafts and one empty line between files. New York becomes Times New Roman and SF becomes Helvetica Neue, since Mac system fonts don't travel to other apps **(assumed)**.
   - Paragraphs holding only a comment are dropped, as is the space in front of each comment.
 - **⌘K search:** an overlay you type into, with results as you type. It searches **everything**: file names, drafts, outlines, notes, comments and bookmarks. Results are grouped by type, each with a preview snippet. Use the arrow keys to move and Return to jump.
+  - Matching ignores case and accents ("lamp" finds "Lámp"). Up to 50 results per group **(assumed)**.
+  - Jumping puts the cursor at the match and flashes it; a file-name result just opens the file. Esc or a click outside closes.
 
 ---
 

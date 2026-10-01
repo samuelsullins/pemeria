@@ -10,7 +10,8 @@ final class ProjectModel {
     private(set) var project: Project
     /// Bumped whenever the sidebar's contents change (names, kinds, structure). Not for typing.
     private(set) var revision = 0
-    /// Selected files, in book order.
+    /// Selected files, in book order: what the sidebar shows, and what the active editor
+    /// pane shows.
     var selection: [FileID] = [] {
         willSet { commitEditors() }
         didSet { if selection != oldValue { saveState() } }
@@ -45,11 +46,110 @@ final class ProjectModel {
     /// bookmark in the panel), so editors reload it.
     private(set) var contentToken = 0
 
+    // MARK: Split view (SPEC.md §12)
+
+    /// Two editor panes side by side.
+    private(set) var isSplit = false
+    /// The pane the sidebar is driving (0 = left, 1 = right).
+    private(set) var activePane = 0
+    /// What the other pane shows while split.
+    private(set) var otherSelection: [FileID] = []
+
+    /// The files a pane shows, in book order.
+    func selection(forPane pane: Int) -> [FileID] {
+        pane == activePane || !isSplit ? selection : otherSelection
+    }
+
+    func toggleSplit() {
+        commitEditors()
+        if isSplit {
+            if activePane != 0 { activePane = 0 }
+            isSplit = false
+        } else {
+            otherSelection = selection
+            activePane = 0
+            isSplit = true
+        }
+    }
+
+    /// Makes a pane the active one; the sidebar then shows (and changes) its files.
+    func activate(pane: Int) {
+        guard isSplit, pane != activePane else { return }
+        let current = selection
+        activePane = pane
+        selection = otherSelection
+        otherSelection = current
+    }
+
+    // MARK: Search, snapshots and trash
+
+    /// Shows the ⌘K search overlay.
+    var isSearching = false
+    /// The file whose snapshots are being browsed.
+    var historyFile: FileID?
+    var isShowingTrash = false
+
+    /// Goes to a search result.
+    func open(_ result: SearchResult) {
+        if let location = result.location {
+            jump(to: location, bookmarkID: result.bookmarkID)
+        } else {
+            readMode = false
+            reveal(result.fileID)
+            selection = [result.fileID]
+            focusRequest += 1
+        }
+    }
+
+    /// Puts an old version's text back. The current text is snapshotted first, so this can be undone
+    /// by restoring that snapshot.
+    func restore(_ version: SavedVersion, of id: FileID) {
+        commitEditors()
+        do {
+            let old = try package.read(version, of: id)
+            try package.snapshot(id)
+            lastSnapshot[id] = .now
+            guard let file = project.setContent(id, body: old.body, outline: old.outline) else { return }
+            save([file], structural: false)
+            contentToken += 1
+        } catch {
+            AppModel.shared.message = "Couldn’t restore that version.\n\n\(error.localizedDescription)"
+        }
+    }
+
+    /// Takes a file out of the trash and selects it.
+    func restoreFromTrash(_ entry: TrashedFile) {
+        commitEditors()
+        let changed = project.restore(entry.file)
+        guard let restored = changed.first else { return }
+        do {
+            try package.restore(entry, as: restored)
+        } catch {
+            unsaved.insert(restored.id)
+            AppModel.shared.message = "Couldn’t fully restore “\(restored.title)”. It’s back in the project; Pemeria will try saving it again on the next change.\n\n\(error.localizedDescription)"
+        }
+        save(Array(changed.dropFirst()))
+        revision += 1
+        reveal(restored.id)
+        selection = [restored.id]
+    }
+
+    /// Permanently deletes everything in the trash.
+    func emptyTrash() {
+        do {
+            try package.emptyTrash(keepingSnapshotsOf: Set(project.files.keys))
+        } catch {
+            AppModel.shared.message = "Couldn’t empty the trash.\n\n\(error.localizedDescription)"
+        }
+    }
+
     /// Bumped to open the Icons pane at the bottom of the sidebar (e.g. "Edit Icons…").
     private(set) var iconEditorRequest = 0
 
     /// Words in the editor's selected text, or nil when nothing is selected (SPEC.md §10).
     private(set) var selectedTextWords: Int?
+    /// The pane the selected text is in.
+    private(set) var selectedTextPane = 0
     @ObservationIgnored private var selectedTextSource: ObjectIdentifier?
 
     /// Open editors register here; each saves its unsaved typing and records the cursor.
@@ -143,6 +243,8 @@ final class ProjectModel {
             do { try package.writeManifest(project.manifest) } catch { failures.append(error.localizedDescription) }
         }
         selection.removeAll { removed.contains($0) }
+        otherSelection.removeAll { removed.contains($0) }
+        if let history = historyFile, removed.contains(history) { historyFile = nil }
         expanded.subtract(removed)
         revision += 1
         if !failures.isEmpty {
@@ -214,11 +316,12 @@ final class ProjectModel {
     }
 
     /// Editors report their selection's word count here; the last one with a selection wins.
-    func setSelectedTextWords(_ count: Int?, from editor: AnyObject) {
+    func setSelectedTextWords(_ count: Int?, from editor: AnyObject, pane: Int) {
         let source = ObjectIdentifier(editor)
         if count == nil, selectedTextSource != source { return }
         selectedTextSource = count == nil ? nil : source
         if selectedTextWords != count { selectedTextWords = count }
+        if count != nil, selectedTextPane != pane { selectedTextPane = pane }
     }
 
     func setIconDefinitions(_ icons: [IconDefinition]) {
@@ -250,8 +353,12 @@ final class ProjectModel {
     /// Bumped to ask the main editor to take keyboard focus.
     private(set) var focusRequest = 0
 
+    func focusEditor() {
+        focusRequest += 1
+    }
+
     /// Unfolds the parents of `id` so it shows in the sidebar.
-    private func reveal(_ id: FileID) {
+    func reveal(_ id: FileID) {
         var parent = project.tree.parentOf[id]
         while let current = parent {
             expanded.insert(current)
@@ -272,10 +379,10 @@ final class ProjectModel {
     /// Per-file (body, outline) word counts, dropped whenever a file is saved or removed.
     @ObservationIgnored private var wordCountCache: [FileID: (body: Int, outline: Int)] = [:]
 
-    /// Word counts for the selection and the whole project (SPEC.md §10). Reading this
+    /// Word counts for some selected files and the whole project (SPEC.md §10). Reading this
     /// observes `project`, so views update after each autosave.
-    var wordCounts: WordCounts {
-        project.wordCounts(selected: Set(selection)) { file in
+    func wordCounts(selected: [FileID]) -> WordCounts {
+        project.wordCounts(selected: Set(selected)) { file in
             if let cached = wordCountCache[file.id] { return cached }
             let counts = Project.wordCount(of: file)
             wordCountCache[file.id] = counts
