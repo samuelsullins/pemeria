@@ -44,40 +44,65 @@ struct EditorSegment {
     }
 }
 
+/// What an editor shows: everything inline, or the split used when the outline is pinned.
+enum EditorMode: Equatable {
+    /// Each file's text, then its outline.
+    case full
+    /// Draft and note text only (the main editor while the outline is pinned).
+    case bodies
+    /// Outlines only, each labeled with its file (the pinned outline pane).
+    case outlines
+}
+
 /// Which files the editor is showing, and as what. A change means reloading.
 struct ShownFile: Equatable {
     let id: FileID
     let kind: FileKind
 }
 
-/// Everything the editor shows, laid out as one text:
+/// Everything an editor shows, laid out as one text:
 ///
 /// ```
 /// [header] body \n [divider] \n outline \n [header] body …
 /// ```
 ///
 /// Markers and segments are joined by single newlines; each marker is one invisible character
-/// on its own line. Headers appear only when more than one file is shown; notes have no outline.
+/// on its own line. In `.full` and `.bodies`, headers appear only when more than one file is
+/// shown; in `.outlines` every outline gets one. Notes have no outline.
 struct EditorContent {
+    enum Piece {
+        case marker
+        case segment(Int)
+    }
+
     var text = NSMutableAttributedString()
     var segments: [EditorSegment] = []
     var markers: [EditorMarker] = []
+    /// The order of markers and segments, for rebuilding segment ranges from marker positions.
+    var pieces: [Piece] = []
 
-    init(files: [PemeriaFile]) {
+    init(files: [PemeriaFile], mode: EditorMode) {
         for file in files {
-            if files.count > 1 {
+            switch mode {
+            case .full, .bodies:
+                if files.count > 1 {
+                    appendMarker(EditorMarker(kind: .fileHeader, fileID: file.id, title: file.title))
+                }
+                appendSegment(file.id, .body, indented: file.kind == .draft, TextBridge.attributedString(file.body))
+                if mode == .full, file.kind == .draft {
+                    appendMarker(EditorMarker(kind: .outlineDivider, fileID: file.id, title: file.title))
+                    appendSegment(file.id, .outline, indented: false, TextBridge.attributedString(file.outline ?? []))
+                }
+            case .outlines:
+                guard file.kind == .draft else { continue }
                 appendMarker(EditorMarker(kind: .fileHeader, fileID: file.id, title: file.title))
-            }
-            appendSegment(file.id, .body, indented: file.kind == .draft, TextBridge.attributedString(file.body))
-            if file.kind == .draft {
-                appendMarker(EditorMarker(kind: .outlineDivider, fileID: file.id, title: file.title))
                 appendSegment(file.id, .outline, indented: false, TextBridge.attributedString(file.outline ?? []))
             }
         }
     }
 
     private mutating func separate() {
-        if text.length > 0 || !segments.isEmpty || !markers.isEmpty {
+        if !pieces.isEmpty {
             text.append(NSAttributedString(string: "\n"))
         }
     }
@@ -86,12 +111,14 @@ struct EditorContent {
         separate()
         text.append(NSAttributedString(string: String(TextBridge.markerCharacter), attributes: [.pemeriaMarker: marker]))
         markers.append(marker)
+        pieces.append(.marker)
     }
 
     private mutating func appendSegment(_ id: FileID, _ role: EditorSegment.Role, indented: Bool, _ content: NSAttributedString) {
         separate()
         let start = text.length
         text.append(content)
+        pieces.append(.segment(segments.count))
         segments.append(EditorSegment(fileID: id, role: role, isIndented: indented, range: NSRange(location: start, length: content.length)))
     }
 }

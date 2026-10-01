@@ -167,11 +167,19 @@ public struct ProjectState: Codable, Hashable, Sendable {
     public var expanded: [FileID]
     /// Where you were in each file, keyed by file id.
     public var positions: [String: FilePosition]
+    /// Whether outlines are shown in the pinned pane rather than inline.
+    public var outlinePinned: Bool
 
-    public init(selection: [FileID] = [], expanded: [FileID] = [], positions: [String: FilePosition] = [:]) {
+    public init(
+        selection: [FileID] = [],
+        expanded: [FileID] = [],
+        positions: [String: FilePosition] = [:],
+        outlinePinned: Bool = false
+    ) {
         self.selection = selection
         self.expanded = expanded
         self.positions = positions
+        self.outlinePinned = outlinePinned
     }
 
     public init(from decoder: Decoder) throws {
@@ -179,6 +187,7 @@ public struct ProjectState: Codable, Hashable, Sendable {
         selection = try container.decodeIfPresent([FileID].self, forKey: .selection) ?? []
         expanded = try container.decodeIfPresent([FileID].self, forKey: .expanded) ?? []
         positions = try container.decodeIfPresent([String: FilePosition].self, forKey: .positions) ?? [:]
+        outlinePinned = try container.decodeIfPresent(Bool.self, forKey: .outlinePinned) ?? false
     }
 }
 

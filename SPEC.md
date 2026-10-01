@@ -124,7 +124,7 @@ The sidebar and the right panel each toggle on and off. One project is open at a
 - **Notes vs. drafts:** right-click → "Make Note" / "Make Draft". Notes show a note icon and never count toward the draft word count.
 - **File icons:** up to 3 per file. They're drawn slightly overlapping, fanned like playing cards, to save room. Assign them from the right-click menu. Icons are defined per project (name, color, symbol) and you can make as many as you like. The defaults are the five story beats in §2. *Where you create and edit icon definitions (assumed: a small sheet reached from the right-click menu → "Edit Icons…").*
 - **Working File:** shown with a **fat arrow** glyph. Only one file per project can be the Working File (see §8).
-- **New file:** ⌘N creates a draft below the current selection. ⌥⌘N creates a note **(assumed)**.
+- **New file:** ⌘N creates a draft below the current selection. ⌥⌘N creates a note **(assumed)**. The **+** button under the file list does the same: click for a draft, hold for a note.
 - **Delete** (Delete key, or right-click → Move to Trash…): asks first, then moves the file to the project's trash (§11). Anything nested inside it goes too, and the confirmation says how many. It is never deleted permanently from here.
 - **Right-click** acts on the whole selection if you click a selected file, or on just the clicked file otherwise (as in Finder).
 
@@ -156,7 +156,7 @@ The sidebar and the right panel each toggle on and off. One project is open at a
 - **No spacing between paragraphs** (book style). Spacing is a global setting.
 
 ### Global settings (Preferences, app-wide, never per document)
-Font, size, line height, indent size, editor width, light/dark theme.
+Font, size, alignment (justified by default, or left), line height, indent size, editor width, light/dark theme.
 
 ---
 
@@ -194,7 +194,7 @@ Font, size, line height, indent size, editor width, light/dark theme.
 
 - Every **draft** has an outline: plain text, with the same formatting and comments as the draft. Notes have no outline.
 - **By default** the outline appears inline after its file, below a divider.
-- **Pin:** a pin icon on the divider moves outlines into the **pinned outline pane** at the bottom. When pinned, the main editor shows only the draft text. The pane shows the outlines of **all selected files**, stacked, each labeled with its file name. Unpinning puts them back inline.
+- **Pin:** a pin icon on the divider (or View → Pin Outline, **⌥⌘O** **(assumed)**) moves outlines into the **pinned outline pane** at the bottom; its height is adjustable by dragging. When pinned, the main editor shows only the draft text. The pane shows the outlines of **all selected files**, stacked, each labeled with its file name. Unpinning puts them back inline.
 - **Outline text never counts** toward the draft word count. It has its own count (§10).
 
 ---
@@ -243,6 +243,7 @@ Font, size, line height, indent size, editor width, light/dark theme.
 | New draft / new note | ⌘N / ⌥⌘N *(assumed)* |
 | Split view | ⌘\\ *(assumed)* |
 | Read mode | ⇧⌘R *(assumed)* |
+| Pin / unpin outline | ⌥⌘O *(assumed)* |
 | Toggle sidebar | ⌃⌘S *(assumed, Mac standard)* |
 | Toggle right panel | ⌥⌘0 *(assumed)* |
 

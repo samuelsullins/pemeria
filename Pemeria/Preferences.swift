@@ -9,6 +9,7 @@ enum PreferenceKey {
     static let lineHeight = "editorLineHeight"
     static let indent = "editorIndent"
     static let width = "editorWidth"
+    static let justified = "editorJustified"
     static let theme = "appTheme"
 }
 
@@ -22,6 +23,7 @@ struct EditorStyle: Equatable {
     var indent: Double
     /// Maximum width of the text column, in points.
     var width: Double
+    var justified: Bool
 
     static let fontChoices: [(id: String, name: String)] = [
         ("system-serif", "New York"),
@@ -42,6 +44,7 @@ struct EditorStyle: Equatable {
             PreferenceKey.lineHeight: 1.45,
             PreferenceKey.indent: 1.5,
             PreferenceKey.width: 680.0,
+            PreferenceKey.justified: true,
             PreferenceKey.theme: "system",
         ])
     }
@@ -53,7 +56,8 @@ struct EditorStyle: Equatable {
             fontSize: defaults.double(forKey: PreferenceKey.fontSize),
             lineHeight: defaults.double(forKey: PreferenceKey.lineHeight),
             indent: defaults.double(forKey: PreferenceKey.indent),
-            width: defaults.double(forKey: PreferenceKey.width)
+            width: defaults.double(forKey: PreferenceKey.width),
+            justified: defaults.bool(forKey: PreferenceKey.justified)
         )
     }
 
@@ -104,6 +108,7 @@ struct PreferencesView: View {
     @AppStorage(PreferenceKey.lineHeight) private var lineHeight = 1.45
     @AppStorage(PreferenceKey.indent) private var indent = 1.5
     @AppStorage(PreferenceKey.width) private var width = 680.0
+    @AppStorage(PreferenceKey.justified) private var justified = true
     @AppStorage(PreferenceKey.theme) private var theme = "system"
 
     var body: some View {
@@ -115,6 +120,11 @@ struct PreferencesView: View {
                     }
                 }
                 Stepper("Size: \(Int(fontSize)) pt", value: $fontSize, in: 11...36, step: 1)
+                Picker("Alignment", selection: $justified) {
+                    Text("Justified").tag(true)
+                    Text("Left").tag(false)
+                }
+                .pickerStyle(.segmented)
                 LabeledContent("Line height") {
                     Slider(value: $lineHeight, in: 1.0...2.2, step: 0.05)
                     Text(lineHeight, format: .number.precision(.fractionLength(2)))

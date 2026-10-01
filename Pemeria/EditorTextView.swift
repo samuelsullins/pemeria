@@ -22,6 +22,11 @@ final class EditorTextView: NSTextView {
         if textContainerInset != inset { textContainerInset = inset }
     }
 
+    override func mouseDown(with event: NSEvent) {
+        if controller?.handleClick(at: convert(event.locationInWindow, from: nil)) == true { return }
+        super.mouseDown(with: event)
+    }
+
     // MARK: Formatting
 
     @objc func toggleItalic(_ sender: Any?) {

@@ -76,6 +76,14 @@ struct PemeriaCommands: Commands {
             }
         }
 
+        CommandGroup(after: .sidebar) {
+            Button(app.project?.outlinePinned == true ? "Unpin Outline" : "Pin Outline") {
+                if let project = app.project { project.outlinePinned.toggle() }
+            }
+            .keyboardShortcut("o", modifiers: [.command, .option])
+            .disabled(app.project == nil)
+        }
+
         CommandMenu("Format") {
             Button("Italic") { NSApp.sendAction(#selector(EditorTextView.toggleItalic(_:)), to: nil, from: nil) }
                 .keyboardShortcut("i")

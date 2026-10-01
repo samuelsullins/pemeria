@@ -19,6 +19,12 @@ final class MarkerFragment: NSTextLayoutFragment {
         fatalError("init(coder:) is not used")
     }
 
+    /// Where the divider's pin icon sits, relative to this fragment's origin.
+    var pinRect: CGRect {
+        let size: CGFloat = 14
+        return CGRect(x: padding + lineWidth - size, y: (layoutFragmentFrame.height - size) / 2, width: size, height: size)
+    }
+
     private var lineWidth: CGFloat {
         let container = textLayoutManager?.textContainer
         return (container?.size.width ?? layoutFragmentFrame.width) - 2 * (container?.lineFragmentPadding ?? 0)
@@ -60,12 +66,19 @@ final class MarkerFragment: NSTextLayoutFragment {
             let size = label.size()
             let midY = point.y + height / 2
             label.draw(at: CGPoint(x: left, y: midY - size.height / 2))
+            let pin = pinRect.offsetBy(dx: point.x, dy: point.y)
             let rule = NSBezierPath()
             rule.move(to: CGPoint(x: left + size.width + 10, y: midY))
-            rule.line(to: CGPoint(x: right, y: midY))
+            rule.line(to: CGPoint(x: pin.minX - 10, y: midY))
             rule.lineWidth = 0.5
             NSColor.separatorColor.setStroke()
             rule.stroke()
+            let configuration = NSImage.SymbolConfiguration(pointSize: 11, weight: .regular)
+                .applying(.init(hierarchicalColor: .tertiaryLabelColor))
+            if let image = NSImage(systemSymbolName: "pin", accessibilityDescription: "Pin outline")?
+                .withSymbolConfiguration(configuration) {
+                image.draw(in: pin)
+            }
 
         case .bookmark(let name):
             let midY = point.y + height / 2

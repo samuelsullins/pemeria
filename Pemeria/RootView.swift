@@ -46,18 +46,36 @@ struct ProjectView: View {
     var body: some View {
         NavigationSplitView {
             SidebarView(model: model)
+                .safeAreaInset(edge: .bottom, spacing: 0) { SidebarFooter(model: model) }
                 .navigationSplitViewColumnWidth(min: 180, ideal: 240, max: 420)
         } detail: {
             EditorPane(model: model)
         }
         .navigationTitle(model.project.manifest.name)
-        .toolbar {
-            ToolbarItem {
-                Button { model.newFile(kind: .draft) } label: {
-                    Label("New Draft", systemImage: "square.and.pencil")
-                }
-                .help("New Draft (⌘N)")
+    }
+}
+
+/// The "+" under the file list: click for a new draft, or open the menu for a note.
+private struct SidebarFooter: View {
+    let model: ProjectModel
+
+    var body: some View {
+        HStack {
+            Menu {
+                Button("New Draft") { model.newFile(kind: .draft) }
+                Button("New Note") { model.newFile(kind: .note) }
+            } label: {
+                Image(systemName: "plus")
+            } primaryAction: {
+                model.newFile(kind: .draft)
             }
+            .menuStyle(.button)
+            .buttonStyle(.borderless)
+            .fixedSize()
+            .help("New Draft (⌘N). Hold for a note.")
+            Spacer()
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
     }
 }

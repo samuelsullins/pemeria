@@ -14,9 +14,11 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
     let scrollView = NSScrollView()
 
     private weak var model: ProjectModel?
+    private(set) var mode: EditorMode
     private(set) var shown: [ShownFile] = []
     private var segments: [EditorSegment] = []
     private var markers: [EditorMarker] = []
+    private var pieces: [EditorContent.Piece] = []
     private var dirty: Set<FileID> = []
     private var saveTimer: Timer?
     /// True while replacing the whole text or refreshing display, so storage callbacks ignore it.
@@ -25,7 +27,11 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
     private var fontCache: [UInt8: NSFont] = [:]
     private var observers: [NSObjectProtocol] = []
 
-    override init() {
+    /// The pinned outline pane doesn't take part in remembering your place; the main editor does.
+    private var remembersPosition: Bool { mode != .outlines }
+
+    init(mode: EditorMode) {
+        self.mode = mode
         textView = EditorTextView(usingTextLayoutManager: true)
         super.init()
 
@@ -80,6 +86,7 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
     /// Call when the view goes away: saves, and stops listening.
     func detach() {
         commit()
+        model?.unregisterEditor(self)
         observers.forEach(NotificationCenter.default.removeObserver)
         observers = []
     }
@@ -88,14 +95,18 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
 
     /// Brings the editor in line with the model: reloads if the shown files changed,
     /// otherwise just refreshes file-header titles.
-    func sync(with model: ProjectModel) {
-        self.model = model
-        model.editorCommit = { [weak self] in self?.commit() }
+    func sync(with model: ProjectModel, mode: EditorMode) {
+        if self.model !== model {
+            self.model?.unregisterEditor(self)
+            self.model = model
+            model.registerEditor(self) { [weak self] in self?.commit() }
+        }
 
         let selected = Set(model.selection)
         let files = model.project.tree.bookOrder.filter(selected.contains).compactMap { model.project.files[$0] }
         let key = files.map { ShownFile(id: $0.id, kind: $0.kind) }
-        if key != shown {
+        if key != shown || mode != self.mode {
+            self.mode = mode
             show(files)
         } else {
             refreshHeaderTitles(files)
@@ -105,10 +116,11 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
     private func show(_ files: [PemeriaFile]) {
         // Edits are normally saved before the selection changes; this is the safety net.
         if !dirty.isEmpty { commit(recordingPosition: false) }
-        let content = EditorContent(files: files)
+        let content = EditorContent(files: files, mode: mode)
         isQuiet = true
         segments = content.segments
         markers = content.markers
+        pieces = content.pieces
         textView.textStorage?.setAttributedString(content.text)
         isQuiet = false
         shown = files.map { ShownFile(id: $0.id, kind: $0.kind) }
@@ -198,8 +210,8 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         }
     }
 
-    /// Rebuilds segment ranges from where the marker lines actually are. Each marker ends the
-    /// segment before it, and the segment after it starts on the next line.
+    /// Rebuilds segment ranges from where the marker lines actually are, following the recorded
+    /// layout: each marker ends the segment before it, and the next segment starts a line later.
     private func resyncSegments() {
         guard let storage = textView.textStorage else { return }
         var markerLocations: [Int] = []
@@ -212,20 +224,16 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
 
         var rebuilt = segments
         var markerIndex = 0
-        var segmentIndex = 0
-        func takeSegment(afterMarker: Bool) {
-            var start = 0
-            if afterMarker {
+        var start = 0
+        for piece in pieces {
+            switch piece {
+            case .marker:
                 start = markerLocations[markerIndex] + 2
                 markerIndex += 1
+            case .segment(let index):
+                let end = markerIndex < markerLocations.count ? markerLocations[markerIndex] - 1 : storage.length
+                rebuilt[index].range = NSRange(location: start, length: max(0, end - start))
             }
-            let end = markerIndex < markerLocations.count ? markerLocations[markerIndex] - 1 : storage.length
-            rebuilt[segmentIndex].range = NSRange(location: start, length: max(0, end - start))
-            segmentIndex += 1
-        }
-        for file in shown {
-            takeSegment(afterMarker: shown.count > 1)
-            if file.kind == .draft { takeSegment(afterMarker: true) }
         }
         segments = rebuilt
     }
@@ -298,6 +306,21 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         attributes[.foregroundColor] = segment?.role == .outline ? NSColor.secondaryLabelColor : NSColor.textColor
         attributes[.paragraphStyle] = paragraphStyle(indented: segment?.isIndented ?? false)
         textView.typingAttributes = attributes
+    }
+
+    // MARK: Pin icon on the outline divider
+
+    /// Handles a click on a divider's pin icon. Returns false for any other click.
+    func handleClick(at point: NSPoint) -> Bool {
+        guard mode == .full, let layout = textView.textLayoutManager else { return false }
+        let origin = textView.textContainerOrigin
+        let containerPoint = CGPoint(x: point.x - origin.x, y: point.y - origin.y)
+        guard let fragment = layout.textLayoutFragment(for: containerPoint) as? MarkerFragment,
+              case .outlineDivider = fragment.kind else { return false }
+        let target = fragment.pinRect.offsetBy(dx: fragment.layoutFragmentFrame.minX, dy: fragment.layoutFragmentFrame.minY)
+        guard target.insetBy(dx: -6, dy: -6).contains(containerPoint) else { return false }
+        model?.outlinePinned = true
+        return true
     }
 
     // MARK: Italic and bold
@@ -424,6 +447,7 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         paragraph.lineHeightMultiple = CGFloat(style.lineHeight)
         paragraph.firstLineHeadIndent = indented ? CGFloat(style.indent * style.fontSize) : 0
         paragraph.paragraphSpacing = 0
+        paragraph.alignment = style.justified ? .justified : .natural
         return paragraph
     }
 
@@ -547,7 +571,7 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
     }
 
     private func recordPosition() {
-        guard let model, !shown.isEmpty else { return }
+        guard remembersPosition, let model, !shown.isEmpty else { return }
         let cursor = textView.selectedRange().location
         guard let segment = segments.first(where: { $0.contains(NSRange(location: cursor, length: 0)) }) else { return }
         let offset = caretRect(at: cursor).map { $0.minY - textView.visibleRect.minY } ?? 0
@@ -561,7 +585,7 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
 
     /// Puts the cursor back where it was in the most recently used of the shown files.
     private func restorePosition() {
-        guard let model else { return }
+        guard remembersPosition, let model else { return }
         let candidates = shown.compactMap { file in model.positions[file.id].map { (file.id, $0) } }
         guard let (id, position) = candidates.max(by: { $0.1.lastActive < $1.1.lastActive }),
               let segment = segments.first(where: { $0.fileID == id && ($0.role == .outline) == position.inOutline })

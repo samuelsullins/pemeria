@@ -12,7 +12,7 @@ final class ProjectModel {
     private(set) var revision = 0
     /// Selected files, in book order.
     var selection: [FileID] = [] {
-        willSet { editorCommit?() }
+        willSet { commitEditors() }
         didSet { if selection != oldValue { saveState() } }
     }
     /// Parents whose children are showing.
@@ -26,9 +26,27 @@ final class ProjectModel {
     /// Repairs made while loading, for the user to see once.
     let problems: [String]
 
-    /// Set by the editor: saves its unsaved typing and records the cursor. Called before
-    /// anything that changes what the editor shows.
-    @ObservationIgnored var editorCommit: (() -> Void)?
+    /// Outlines shown in the pinned pane below the editor instead of inline (SPEC.md §9).
+    var outlinePinned = false {
+        willSet { commitEditors() }
+        didSet { if outlinePinned != oldValue { saveState() } }
+    }
+
+    /// Open editors register here; each saves its unsaved typing and records the cursor.
+    /// Called before anything that changes what an editor shows.
+    @ObservationIgnored private var editorCommits: [ObjectIdentifier: () -> Void] = [:]
+
+    func registerEditor(_ editor: AnyObject, commit: @escaping () -> Void) {
+        editorCommits[ObjectIdentifier(editor)] = commit
+    }
+
+    func unregisterEditor(_ editor: AnyObject) {
+        editorCommits[ObjectIdentifier(editor)] = nil
+    }
+
+    func commitEditors() {
+        editorCommits.values.forEach { $0() }
+    }
 
     private let isAccessingSecurityScope: Bool
 
@@ -46,6 +64,7 @@ final class ProjectModel {
         if let state = package.loadState() {
             selection = state.selection.filter { project.files[$0] != nil }
             expanded = Set(state.expanded.filter { project.files[$0] != nil })
+            outlinePinned = state.outlinePinned
             for (key, position) in state.positions {
                 if let id = FileID(key), project.files[id] != nil { positions[id] = position }
             }
@@ -53,7 +72,7 @@ final class ProjectModel {
     }
 
     func close() {
-        editorCommit?()
+        commitEditors()
         saveState()
         if isAccessingSecurityScope { package.url.stopAccessingSecurityScopedResource() }
     }
@@ -62,7 +81,7 @@ final class ProjectModel {
 
     /// Creates a file after `sibling` (default: the last selected file), selects it, and starts renaming it.
     func newFile(kind: FileKind, after sibling: FileID? = nil) {
-        editorCommit?()
+        commitEditors()
         let file = project.createFile(kind: kind, after: sibling ?? selection.last)
         save([file])
         if let parent = file.parent { expanded.insert(parent) }
@@ -75,14 +94,14 @@ final class ProjectModel {
     }
 
     func setKind(_ ids: [FileID], to kind: FileKind) {
-        editorCommit?()
+        commitEditors()
         save(project.setKind(ids, to: kind))
     }
 
     /// Returns false if the move isn't allowed.
     @discardableResult
     func move(_ ids: [FileID], into parent: FileID?, at index: Int) -> Bool {
-        editorCommit?()
+        commitEditors()
         guard let changed = project.move(ids, into: parent, at: index) else { return false }
         save(changed)
         if let parent { expanded.insert(parent) }
@@ -91,7 +110,7 @@ final class ProjectModel {
 
     /// Moves files, and everything nested in them, into the project's trash folder.
     func trash(_ ids: [FileID]) {
-        editorCommit?()
+        commitEditors()
         let workingFileBefore = project.manifest.workingFile
         let removed = project.remove(ids)
         var failures: [String] = []
@@ -158,7 +177,8 @@ final class ProjectModel {
         try? package.writeState(ProjectState(
             selection: selection,
             expanded: expanded.sorted(),
-            positions: Dictionary(uniqueKeysWithValues: positions.map { ($0.key.rawValue, $0.value) })
+            positions: Dictionary(uniqueKeysWithValues: positions.map { ($0.key.rawValue, $0.value) }),
+            outlinePinned: outlinePinned
         ))
     }
 }
