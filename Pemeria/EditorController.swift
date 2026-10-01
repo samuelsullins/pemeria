@@ -127,7 +127,6 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         markers = content.markers
         pieces = content.pieces
         textView.textStorage?.setAttributedString(content.text)
-        attachBookmarkTags()
         isQuiet = false
         shown = files.map { ShownFile(id: $0.id, kind: $0.kind) }
         textView.isEditable = mode != .reading
@@ -314,7 +313,6 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         var attributes = textView.typingAttributes
         attributes[.pemeriaMarker] = nil
         attributes[.pemeriaBookmark] = nil
-        attributes[.attachment] = nil
         let raw = (attributes[.pemeriaStyle] as? NSNumber)?.uint8Value ?? 0
         let location = textView.selectedRange().location
         let segment = segments.first { $0.contains(NSRange(location: location, length: 0)) }
@@ -326,11 +324,22 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
 
     // MARK: Pin icon on the outline divider
 
-    /// Handles a click on a divider's pin icon. Returns false for any other click.
+    /// Handles a click on a divider's pin icon or a bookmark's margin icon. Returns false for any other click.
     func handleClick(at point: NSPoint) -> Bool {
-        guard mode == .full, let layout = textView.textLayoutManager else { return false }
+        guard let layout = textView.textLayoutManager else { return false }
         let origin = textView.textContainerOrigin
         let containerPoint = CGPoint(x: point.x - origin.x, y: point.y - origin.y)
+        // Look up the line by height alone: margin clicks are outside the text column.
+        if let fragment = layout.textLayoutFragment(for: CGPoint(x: 1, y: containerPoint.y)) as? BookmarkedParagraphFragment {
+            let frameOrigin = fragment.layoutFragmentFrame.origin
+            if let mark = fragment.marks().first(where: {
+                $0.iconRect.offsetBy(dx: frameOrigin.x, dy: frameOrigin.y).insetBy(dx: -4, dy: -4).contains(containerPoint)
+            }) {
+                showBookmarkMenu(for: mark.bookmark, at: point)
+                return true
+            }
+        }
+        guard mode == .full else { return false }
         guard let fragment = layout.textLayoutFragment(for: containerPoint) as? MarkerFragment,
               case .outlineDivider = fragment.kind else { return false }
         let target = fragment.pinRect.offsetBy(dx: fragment.layoutFragmentFrame.minX, dy: fragment.layoutFragmentFrame.minY)
@@ -370,30 +379,12 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
             if let marker = value as? BookmarkMarker { taken.insert(marker.bookmark.id) }
         }
         let bookmark = Bookmark(id: Bookmark.generateID(avoiding: taken), name: name)
-        let tag = NSMutableAttributedString(attributedString: TextBridge.marker(for: bookmark))
-        tag.addAttribute(.attachment, value: tagAttachment(for: bookmark), range: NSRange(location: 0, length: 1))
+        let tag = TextBridge.marker(for: bookmark)
         let range = NSRange(location: location, length: 0)
         guard textView.shouldChangeText(in: range, replacementString: tag.string) else { return }
         storage.replaceCharacters(in: range, with: tag)
         textView.didChangeText()
         textView.setSelectedRange(NSRange(location: location + 1, length: 0))
-    }
-
-    private func tagAttachment(for bookmark: Bookmark) -> BookmarkAttachment {
-        let attachment = BookmarkAttachment(bookmark: bookmark)
-        attachment.onDelete = { [weak self] id in self?.deleteBookmark(id: id) }
-        return attachment
-    }
-
-    /// Gives every bookmark character its inline tag (bookmarks arrive from the file without one).
-    private func attachBookmarkTags() {
-        guard let storage = textView.textStorage else { return }
-        storage.enumerateAttribute(.pemeriaBookmark, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
-            guard let marker = value as? BookmarkMarker else { return }
-            for index in range.location..<NSMaxRange(range) {
-                storage.addAttribute(.attachment, value: tagAttachment(for: marker.bookmark), range: NSRange(location: index, length: 1))
-            }
-        }
     }
 
     private func bookmarkRange(id: String) -> NSRange? {
@@ -408,7 +399,7 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         return found
     }
 
-    /// The tag's ×: removes the bookmark (undoable, like any edit).
+    /// Removes a bookmark (undoable, like any edit).
     private func deleteBookmark(id: String) {
         guard textView.isEditable, let storage = textView.textStorage, let range = bookmarkRange(id: id),
               textView.shouldChangeText(in: range, replacementString: "") else { return }
@@ -473,6 +464,45 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         }
         if target.length > 0 { textView.showFindIndicator(for: target) }
         textView.window?.makeFirstResponder(textView)
+    }
+
+    private func showBookmarkMenu(for bookmark: Bookmark, at point: NSPoint) {
+        let menu = NSMenu()
+        let title = NSMenuItem(title: bookmark.name.isEmpty ? "Bookmark" : bookmark.name, action: nil, keyEquivalent: "")
+        title.isEnabled = false
+        menu.addItem(title)
+        menu.addItem(.separator())
+        for (label, action) in [("Rename…", #selector(renameBookmarkFromMenu(_:))), ("Delete Bookmark", #selector(deleteBookmarkFromMenu(_:)))] {
+            let item = NSMenuItem(title: label, action: action, keyEquivalent: "")
+            item.target = self
+            item.representedObject = bookmark.id
+            item.isEnabled = textView.isEditable
+            menu.addItem(item)
+        }
+        menu.autoenablesItems = false
+        menu.popUp(positioning: nil, at: point, in: textView)
+    }
+
+    @objc private func deleteBookmarkFromMenu(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
+        deleteBookmark(id: id)
+    }
+
+    @objc private func renameBookmarkFromMenu(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String, let range = bookmarkRange(id: id),
+              let marker = textView.textStorage?.attribute(.pemeriaBookmark, at: range.location, effectiveRange: nil) as? BookmarkMarker
+        else { return }
+        let anchor = caretRect(at: range.location) ?? NSRect(x: textView.textContainerOrigin.x, y: textView.visibleRect.midY, width: 1, height: 20)
+        let edge: NSRectEdge = anchor.midY > textView.visibleRect.midY ? .minY : .maxY
+        BookmarkNamePrompt.show(relativeTo: anchor, of: textView, preferredEdge: edge, initialName: marker.bookmark.name) { [weak self] name in
+            guard let self, !name.isEmpty, let storage = self.textView.textStorage, let range = self.bookmarkRange(id: id),
+                  self.textView.shouldChangeText(in: range, replacementString: nil) else { return }
+            var renamed = marker.bookmark
+            renamed.name = name
+            storage.addAttribute(.pemeriaBookmark, value: BookmarkMarker(renamed), range: range)
+            self.textView.didChangeText()
+            self.textView.window?.makeFirstResponder(self.textView)
+        }
     }
 
     // MARK: Italic and bold
@@ -654,6 +684,14 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
                 let kind: MarkerFragment.Kind = marker.kind == .fileHeader ? .fileHeader(title: marker.title) : .outlineDivider
                 return MarkerFragment(textElement: textElement, range: textElement.elementRange, kind: kind)
             }
+            var bookmarks: [(index: Int, bookmark: Bookmark)] = []
+            line.enumerateAttribute(.pemeriaBookmark, in: NSRange(location: 0, length: line.length)) { value, range, _ in
+                guard let marker = value as? BookmarkMarker else { return }
+                for index in range.location..<NSMaxRange(range) { bookmarks.append((index, marker.bookmark)) }
+            }
+            if !bookmarks.isEmpty {
+                return BookmarkedParagraphFragment(textElement: textElement, range: textElement.elementRange, bookmarks: bookmarks)
+            }
         }
         return NSTextLayoutFragment(textElement: textElement, range: textElement.elementRange)
     }
@@ -700,6 +738,14 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
 
     /// The cursor's rectangle in text view coordinates, laying out text up to it if needed.
     private func caretRect(at location: Int) -> CGRect? {
+        if let window = textView.window {
+            var actual = NSRange()
+            let screen = textView.firstRect(forCharacterRange: NSRange(location: location, length: 0), actualRange: &actual)
+            if screen != .zero {
+                let rect = textView.convert(window.convertFromScreen(screen), from: nil)
+                if rect.height > 0 { return rect }
+            }
+        }
         guard let layout = textView.textLayoutManager, let content = textView.textContentStorage,
               let target = content.location(content.documentRange.location, offsetBy: location),
               let upToTarget = NSTextRange(location: content.documentRange.location, end: target) else { return nil }

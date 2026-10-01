@@ -176,7 +176,7 @@ Font, size, alignment (justified by default, or left), line height, indent size,
 ## 7. Bookmarks
 
 - **⌘D** opens a small name popup at the cursor, Blender-style. Type a name, press Return, done. Esc cancels. The popup opens below the cursor, or above it when the cursor is low in the window. Leaving the name empty names the bookmark after the next few words **(assumed)**.
-- **A bookmark marks an exact spot**, even mid-paragraph: it's drawn inline as a small accent tag with its name and an **×**. Click the × to delete it; ⌘Z brings it back. It moves with the text around it. It's deleted like a single character, too.
+- **A bookmark marks an exact spot**, even mid-paragraph. A bookmark icon sits in the left margin beside its line (with the name next to it when the margin has room), and a faint accent tick marks the exact spot in the text. Click the icon for **Rename…** or **Delete Bookmark**; ⌘Z undoes either. The bookmark moves with the text around it.
 - **Bookmarks panel:** lists all bookmarks in the project, in book order **(assumed: always project-wide, since bookmarks are for navigation)**. Click one to jump. Double-click to rename. Right-click to rename or delete. The **+** button does the same as ⌘D.
 
 ---

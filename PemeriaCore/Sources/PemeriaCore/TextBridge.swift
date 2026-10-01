@@ -23,14 +23,14 @@ public final class BookmarkMarker: NSObject, @unchecked Sendable {
 }
 
 /// Converts between blocks and the editor's text: one line per paragraph, italic/bold as a
-/// `.pemeriaStyle` attribute, and each bookmark as one object-replacement character placed
-/// inside its paragraph at the bookmark's offset (the editor draws it as an inline tag). Display attributes (fonts, colors, indents) are the
+/// `.pemeriaStyle` attribute, and each bookmark as one zero-width character placed inside its
+/// paragraph at the bookmark's offset (the editor marks it in the margin). Display attributes (fonts, colors, indents) are the
 /// editor's business and are ignored here.
 public enum TextBridge {
     /// Zero-width "word joiner": the stand-in character for the editor's divider lines.
     public static let markerCharacter: Character = "\u{2060}"
-    /// Object replacement character: the stand-in for a bookmark.
-    public static let bookmarkCharacter: Character = "\u{FFFC}"
+    /// The stand-in for a bookmark: also a zero-width word joiner, told apart by its attribute.
+    public static let bookmarkCharacter: Character = "\u{2060}"
     static let strayScalars: Set<Unicode.Scalar> = ["\u{2060}", "\u{FFFC}"]
 
     public static func attributedString(_ blocks: [Block]) -> NSMutableAttributedString {

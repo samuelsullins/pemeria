@@ -10,7 +10,7 @@ struct TextBridgeTests {
             .paragraph(Paragraph("Rain came.")),
         ]
         let text = TextBridge.attributedString(blocks)
-        #expect(text.string == "The lamp was dark.\nRain \u{FFFC}came.")
+        #expect(text.string == "The lamp was dark.\nRain \u{2060}came.")
         #expect((text.attribute(.pemeriaStyle, at: 13, effectiveRange: nil) as? NSNumber)?.uint8Value == InlineStyle.italic.rawValue)
         #expect(text.attribute(.pemeriaStyle, at: 0, effectiveRange: nil) == nil)
         #expect((text.attribute(.pemeriaBookmark, at: 24, effectiveRange: nil) as? BookmarkMarker)?.bookmark.name == "Storm")
