@@ -33,11 +33,15 @@ final class BookmarkedParagraphFragment: NSTextLayoutFragment {
     }
 
     override var renderingSurfaceBounds: CGRect {
-        super.renderingSurfaceBounds.union(CGRect(x: -Self.marginReach, y: 0, width: Self.marginReach, height: layoutFragmentFrame.height))
+        let reach = Self.marginReach + layoutFragmentFrame.minX
+        return super.renderingSurfaceBounds.union(CGRect(x: -reach, y: 0, width: reach, height: layoutFragmentFrame.height))
     }
 
     /// Where each bookmark's icon and tick go. Several bookmarks on one line step leftward.
+    /// Icons are placed against the text column's edge, not the fragment's: TextKit shifts a
+    /// one-line paragraph's fragment (a blank line, say) by its first-line indent.
     func marks() -> [Mark] {
+        let columnEdge = (textLayoutManager?.textContainer?.lineFragmentPadding ?? 0) - layoutFragmentFrame.minX
         guard let paragraph = textElement as? NSTextParagraph else { return [] }
         let text = paragraph.attributedString
         var perLine: [Int: Int] = [:]
@@ -56,7 +60,7 @@ final class BookmarkedParagraphFragment: NSTextLayoutFragment {
 
             let stack = perLine[lineIndex, default: 0]
             perLine[lineIndex] = stack + 1
-            let iconRight = -Self.iconGap - CGFloat(stack) * (Self.iconSize + 3)
+            let iconRight = columnEdge - Self.iconGap - CGFloat(stack) * (Self.iconSize + 3)
             let icon = CGRect(x: iconRight - Self.iconSize, y: centerY - Self.iconSize / 2, width: Self.iconSize, height: Self.iconSize)
             let tick = CGRect(x: x - 0.75, y: baseline - font.capHeight, width: 1.5, height: font.capHeight + 2)
             return Mark(bookmark: bookmark, iconRect: icon, tickRect: tick)
@@ -69,7 +73,7 @@ final class BookmarkedParagraphFragment: NSTextLayoutFragment {
         NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
         defer { NSGraphicsContext.restoreGraphicsState() }
 
-        let accent = NSColor.controlAccentColor
+        let accent = Theme.accent
         let symbol = NSImage(systemSymbolName: "bookmark.fill", accessibilityDescription: "Bookmark")?
             .withSymbolConfiguration(.init(pointSize: Self.iconSize - 2, weight: .semibold)
                 .applying(.init(hierarchicalColor: accent)))

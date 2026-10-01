@@ -5,7 +5,9 @@ import Foundation
 /// Each edit returns the files it changed so the caller can write exactly those.
 public struct Project: Sendable {
     public var manifest: ProjectManifest
-    public private(set) var files: [FileID: PemeriaFile]
+    /// Settable within the package for edits that don't touch the tree (icons, text). Structural
+    /// changes go through this file so `tree` stays in step.
+    public internal(set) var files: [FileID: PemeriaFile]
     public private(set) var tree: ProjectTree
 
     public init(manifest: ProjectManifest, files: [FileID: PemeriaFile]) {

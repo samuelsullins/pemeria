@@ -1,9 +1,11 @@
 import AppKit
+import PemeriaCore
 
 /// Draws a marker line (file header or outline divider) in place of its invisible character.
 final class MarkerFragment: NSTextLayoutFragment {
     enum Kind {
-        case fileHeader(title: String)
+        /// `copied` swaps the copy icon for a checkmark just after a copy.
+        case fileHeader(fileID: FileID, title: String, copied: Bool)
         case outlineDivider
     }
 
@@ -23,6 +25,24 @@ final class MarkerFragment: NSTextLayoutFragment {
         let size: CGFloat = 14
         return CGRect(x: padding + lineWidth - size, y: (layoutFragmentFrame.height - size) / 2, width: size, height: size)
     }
+
+    /// Where a file header's copy icon sits: at the right end, on the title's line.
+    var copyRect: CGRect {
+        let size: CGFloat = 14
+        let lineY = layoutFragmentFrame.height * 0.35
+        return CGRect(x: padding + lineWidth - size, y: lineY + 6, width: size, height: size)
+    }
+
+    /// The clickable icon on this line: the pin on a divider, the copy icon on a header.
+    var buttonRect: CGRect? {
+        switch kind {
+        case .outlineDivider: pinRect
+        case .fileHeader: hasCopyButton ? copyRect : nil
+        }
+    }
+
+    /// Headers in the pinned outline pane are labels only.
+    var hasCopyButton = true
 
     private var lineWidth: CGFloat {
         let container = textLayoutManager?.textContainer
@@ -47,7 +67,7 @@ final class MarkerFragment: NSTextLayoutFragment {
         let height = layoutFragmentFrame.height
 
         switch kind {
-        case .fileHeader(let title):
+        case .fileHeader(_, let title, let copied):
             let lineY = point.y + height * 0.35
             dashedLine(from: left, to: right, y: lineY, color: .tertiaryLabelColor, dash: [2, 5])
             let label = NSAttributedString(string: title, attributes: [
@@ -55,6 +75,18 @@ final class MarkerFragment: NSTextLayoutFragment {
                 .foregroundColor: NSColor.secondaryLabelColor,
             ])
             label.draw(at: CGPoint(x: left, y: lineY + 6))
+            if hasCopyButton {
+                let color: NSColor = copied ? Theme.accent : .tertiaryLabelColor
+                let configuration = NSImage.SymbolConfiguration(pointSize: 11, weight: .regular)
+                    .applying(.init(hierarchicalColor: color))
+                if let image = NSImage(systemSymbolName: copied ? "checkmark" : "doc.on.doc", accessibilityDescription: "Copy draft text")?
+                    .withSymbolConfiguration(configuration) {
+                    let box = copyRect.offsetBy(dx: point.x, dy: point.y)
+                    let scale = min(box.width / image.size.width, box.height / image.size.height)
+                    let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+                    image.draw(in: CGRect(x: box.midX - size.width / 2, y: box.midY - size.height / 2, width: size.width, height: size.height))
+                }
+            }
 
         case .outlineDivider:
             let label = NSAttributedString(string: "OUTLINE", attributes: [

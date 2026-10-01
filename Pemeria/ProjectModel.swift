@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import Observation
 import PemeriaCore
 
@@ -44,6 +44,9 @@ final class ProjectModel {
     /// Bumped when a shown file's text is changed from outside the editor (e.g. renaming a
     /// bookmark in the panel), so editors reload it.
     private(set) var contentToken = 0
+
+    /// Shows the Edit Icons sheet.
+    var isEditingIcons = false
 
     /// Open editors register here; each saves its unsaved typing and records the cursor.
     /// Called before anything that changes what an editor shows.
@@ -130,6 +133,7 @@ final class ProjectModel {
         for id in removed {
             do { try package.moveToTrash(id) } catch { failures.append(error.localizedDescription) }
             positions[id] = nil
+            wordCountCache[id] = nil
         }
         if project.manifest.workingFile != workingFileBefore {
             do { try package.writeManifest(project.manifest) } catch { failures.append(error.localizedDescription) }
@@ -147,15 +151,91 @@ final class ProjectModel {
     func jump(to location: TextLocation, bookmarkID: String? = nil) {
         readMode = false
         if !selection.contains(location.fileID) {
-            var parent = project.tree.parentOf[location.fileID]
-            while let current = parent {
-                expanded.insert(current)
-                parent = project.tree.parentOf[current]
-            }
+            reveal(location.fileID)
             selection = [location.fileID]
         }
         jumpCount += 1
         jumpRequest = JumpRequest(id: jumpCount, location: location, bookmarkID: bookmarkID)
+    }
+
+    // MARK: Icons and the Working File
+
+    /// Turns an icon on or off for `ids` (SPEC.md §4).
+    func toggleIcon(_ iconID: String, on ids: [FileID]) {
+        save(project.toggleIcon(iconID, on: ids))
+    }
+
+    func setIconDefinitions(_ icons: [IconDefinition]) {
+        let changed = project.setIconDefinitions(icons)
+        writeManifest()
+        save(changed)
+        revision += 1
+    }
+
+    /// Makes `id` the Working File, or clears it (SPEC.md §8).
+    func setWorkingFile(_ id: FileID?) {
+        guard project.setWorkingFile(id) else { return }
+        writeManifest()
+        revision += 1
+    }
+
+    /// ⌘J: shows the Working File, with the cursor where you left it.
+    func jumpToWorkingFile() {
+        guard let id = project.manifest.workingFile, project.files[id] != nil else {
+            NSSound.beep()
+            return
+        }
+        readMode = false
+        reveal(id)
+        if selection != [id] { selection = [id] }
+        focusRequest += 1
+    }
+
+    /// Bumped to ask the main editor to take keyboard focus.
+    private(set) var focusRequest = 0
+
+    /// Unfolds the parents of `id` so it shows in the sidebar.
+    private func reveal(_ id: FileID) {
+        var parent = project.tree.parentOf[id]
+        while let current = parent {
+            expanded.insert(current)
+            parent = project.tree.parentOf[current]
+        }
+    }
+
+    private func writeManifest() {
+        do {
+            try package.writeManifest(project.manifest)
+        } catch {
+            AppModel.shared.message = "Couldn’t save the project settings.\n\n\(error.localizedDescription)"
+        }
+    }
+
+    // MARK: Word count
+
+    /// Per-file (body, outline) word counts, dropped whenever a file is saved or removed.
+    @ObservationIgnored private var wordCountCache: [FileID: (body: Int, outline: Int)] = [:]
+
+    /// Word counts for the selection and the whole project (SPEC.md §10). Reading this
+    /// observes `project`, so views update after each autosave.
+    var wordCounts: WordCounts {
+        project.wordCounts(selected: Set(selection)) { file in
+            if let cached = wordCountCache[file.id] { return cached }
+            let counts = Project.wordCount(of: file)
+            wordCountCache[file.id] = counts
+            return counts
+        }
+    }
+
+    // MARK: Copy
+
+    /// One-click copy (SPEC.md §12): the files' draft text, as formatted and plain text.
+    func copyDraftText(of ids: [FileID]) {
+        commitEditors()
+        let text = DraftCopy.attributedString(project.draftText(of: ids))
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.writeObjects([text])
     }
 
     func renameBookmark(_ entry: BookmarkEntry, to name: String) {
@@ -205,6 +285,7 @@ final class ProjectModel {
         unsaved = []
         var failures: [String] = []
         for file in files + retries {
+            wordCountCache[file.id] = nil
             do {
                 try package.write(file)
             } catch {

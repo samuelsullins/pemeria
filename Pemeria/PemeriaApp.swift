@@ -24,6 +24,7 @@ struct PemeriaApp: App {
 
         Settings {
             PreferencesView()
+                .tint(Theme.accentColor)
         }
     }
 }
@@ -99,6 +100,17 @@ struct PemeriaCommands: Commands {
             }
             .keyboardShortcut("o", modifiers: [.command, .option])
             .disabled(app.project == nil)
+        }
+
+        CommandMenu("Navigate") {
+            Button("Jump to Working File") { app.project?.jumpToWorkingFile() }
+                .keyboardShortcut("j")
+                .disabled(app.project?.project.manifest.workingFile == nil)
+            Button("Set as Working File") {
+                if let project = app.project, let id = project.selection.first { project.setWorkingFile(id) }
+            }
+            .keyboardShortcut("j", modifiers: [.command, .shift])
+            .disabled(app.project?.selection.count != 1)
         }
 
         CommandMenu("Format") {

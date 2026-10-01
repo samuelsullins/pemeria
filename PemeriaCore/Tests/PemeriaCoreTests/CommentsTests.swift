@@ -26,7 +26,9 @@ struct CommentsTests {
 
     @Test func strippingKeepsStylesAndDropsEmptyLines() {
         let paragraph = Paragraph(runs: [Run("She "), Run("climbed", .italic), Run(". // Too abrupt? Then on.")])
-        #expect(Comments.stripped(paragraph) == Paragraph(runs: [Run("She "), Run("climbed", .italic), Run(".  Then on.")]))
+        #expect(Comments.stripped(paragraph) == Paragraph(runs: [Run("She "), Run("climbed", .italic), Run(". Then on.")]))
+        #expect(Comments.stripped(Paragraph("// note.  Then text.")) == Paragraph("Then text."))
+        #expect(Comments.stripped(Paragraph("End. // why?")) == Paragraph("End."))
         #expect(Comments.stripped(Paragraph("// only a note")) == nil)
         #expect(Comments.stripped(Paragraph("no comment")) == Paragraph("no comment"))
     }

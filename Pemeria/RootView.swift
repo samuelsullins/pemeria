@@ -13,6 +13,7 @@ struct RootView: View {
                 WelcomeView(app: app)
             }
         }
+        .tint(Theme.accentColor)
         .alert(
             "Pemeria",
             isPresented: Binding(get: { app.message != nil }, set: { if !$0 { app.message = nil } }),
@@ -59,6 +60,9 @@ struct ProjectView: View {
                 }
         }
         .navigationTitle(model.project.manifest.name)
+        .sheet(isPresented: Binding(get: { model.isEditingIcons }, set: { model.isEditingIcons = $0 })) {
+            IconEditor(model: model)
+        }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 Toggle(isOn: Binding(get: { model.readMode }, set: { model.readMode = $0 })) {

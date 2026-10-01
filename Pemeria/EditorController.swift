@@ -22,6 +22,9 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
     /// The model's `contentToken` when this text was loaded; a newer one means reload.
     private var loadedToken = -1
     private var handledJumpID = -1
+    private var handledFocusRequest: Int?
+    /// Files whose header copy icon is showing a checkmark for a moment.
+    private var recentlyCopied: Set<FileID> = []
     /// True while removing a bookmark on purpose, so the step-over-bookmarks rule lets it through.
     private var isDeletingBookmark = false
     private var dirty: Set<FileID> = []
@@ -56,6 +59,8 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         textView.isAutomaticLinkDetectionEnabled = false
         textView.isAutomaticDataDetectionEnabled = false
         textView.smartInsertDeleteEnabled = false
+        textView.insertionPointColor = Theme.accent
+        textView.selectedTextAttributes = [.backgroundColor: Theme.accent.withAlphaComponent(0.25)]
         textView.drawsBackground = true
         textView.backgroundColor = .textBackgroundColor
         textView.isVerticallyResizable = true
@@ -118,6 +123,17 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
             refreshHeaderTitles(files)
         }
         handlePendingJump()
+        handleFocusRequest(model.focusRequest)
+    }
+
+    /// The main editor takes keyboard focus when asked (e.g. after ⌘J).
+    private func handleFocusRequest(_ request: Int) {
+        defer { handledFocusRequest = request }
+        guard let handled = handledFocusRequest, handled != request, mode != .outlines else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.textView.window?.makeFirstResponder(self.textView)
+        }
     }
 
     private func show(_ files: [PemeriaFile]) {
@@ -296,7 +312,7 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
     private func flashBlocked() {
         let flash = NSView(frame: scrollView.contentView.bounds)
         flash.wantsLayer = true
-        flash.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.08).cgColor
+        flash.layer?.backgroundColor = Theme.accent.withAlphaComponent(0.08).cgColor
         flash.autoresizingMask = [.width, .height]
         scrollView.addSubview(flash)
         NSAnimationContext.runAnimationGroup({ context in
@@ -358,9 +374,10 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         textView.typingAttributes = attributes
     }
 
-    // MARK: Pin icon on the outline divider
+    // MARK: Clicks on margin and marker icons
 
-    /// Handles a click on a divider's pin icon or a bookmark's margin icon. Returns false for any other click.
+    /// Handles a click on a bookmark's margin icon, a divider's pin, or a file header's copy icon.
+    /// Returns false for any other click.
     func handleClick(at point: NSPoint) -> Bool {
         guard let layout = textView.textLayoutManager else { return false }
         let origin = textView.textContainerOrigin
@@ -376,13 +393,33 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
                 return true
             }
         }
-        guard mode == .full else { return false }
         guard let fragment = layout.textLayoutFragment(for: containerPoint) as? MarkerFragment,
-              case .outlineDivider = fragment.kind else { return false }
-        let target = fragment.pinRect.offsetBy(dx: fragment.layoutFragmentFrame.minX, dy: fragment.layoutFragmentFrame.minY)
-        guard target.insetBy(dx: -6, dy: -6).contains(containerPoint) else { return false }
-        model?.outlinePinned = true
+              let target = fragment.buttonRect?.offsetBy(dx: fragment.layoutFragmentFrame.minX, dy: fragment.layoutFragmentFrame.minY),
+              target.insetBy(dx: -6, dy: -6).contains(containerPoint) else { return false }
+        switch fragment.kind {
+        case .outlineDivider:
+            model?.outlinePinned = true
+        case .fileHeader(let fileID, _, _):
+            copyDraftText(of: fileID)
+        }
         return true
+    }
+
+    /// The copy icon on a file's header: copies that file's draft text, then shows a checkmark briefly.
+    private func copyDraftText(of fileID: FileID) {
+        model?.copyDraftText(of: [fileID])
+        recentlyCopied.insert(fileID)
+        refreshHeader(of: fileID)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+            self?.recentlyCopied.remove(fileID)
+            self?.refreshHeader(of: fileID)
+        }
+    }
+
+    private func refreshHeader(of fileID: FileID) {
+        guard let marker = markers.first(where: { $0.kind == .fileHeader && $0.fileID == fileID }),
+              let range = range(of: marker) else { return }
+        refreshDisplay(in: range)
     }
 
     // MARK: Bookmarks and comments
@@ -702,8 +739,13 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         if let paragraph = textElement as? NSTextParagraph, paragraph.attributedString.length > 0 {
             let line = paragraph.attributedString
             if let marker = line.attribute(.pemeriaMarker, at: 0, effectiveRange: nil) as? EditorMarker {
-                let kind: MarkerFragment.Kind = marker.kind == .fileHeader ? .fileHeader(title: marker.title) : .outlineDivider
-                return MarkerFragment(textElement: textElement, range: textElement.elementRange, kind: kind)
+                let kind: MarkerFragment.Kind = switch marker.kind {
+                case .fileHeader: .fileHeader(fileID: marker.fileID, title: marker.title, copied: recentlyCopied.contains(marker.fileID))
+                case .outlineDivider: .outlineDivider
+                }
+                let fragment = MarkerFragment(textElement: textElement, range: textElement.elementRange, kind: kind)
+                fragment.hasCopyButton = mode != .outlines
+                return fragment
             }
             var bookmarks: [(index: Int, bookmark: Bookmark)] = []
             line.enumerateAttribute(.pemeriaBookmark, in: NSRange(location: 0, length: line.length)) { value, range, _ in

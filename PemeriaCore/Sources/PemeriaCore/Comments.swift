@@ -34,8 +34,22 @@ public enum Comments {
     }
 
     /// The paragraph with its comments removed, or nil if nothing but whitespace is left.
+    /// The space before each comment goes with it (or, for a comment that starts the line,
+    /// the spaces after it), so no double spaces are left behind.
     public static func stripped(_ paragraph: Paragraph) -> Paragraph? {
-        let ranges = ranges(in: paragraph.text)
+        let text = paragraph.text as NSString
+        let ranges = ranges(in: paragraph.text).map { comment -> NSRange in
+            var range = comment
+            if range.location > 0 {
+                range.location -= 1
+                range.length += 1
+            } else {
+                while NSMaxRange(range) < text.length, isWhitespace(text.character(at: NSMaxRange(range))) {
+                    range.length += 1
+                }
+            }
+            return range
+        }
         guard !ranges.isEmpty else { return paragraph }
         var runs: [Run] = []
         var offset = 0

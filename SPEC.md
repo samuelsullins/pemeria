@@ -114,6 +114,8 @@ Mara reaches the lighthouse. Finds the logbook. Storm hits.
 
 The sidebar and the right panel each toggle on and off. One project is open at a time **(assumed)**; File → Open Recent switches between projects, and the last project reopens on launch.
 
+**Accent colour:** a deep coral (`#BF5F56` in light mode, `#D47469` in dark), taken from Apple's Journal app. It's used for the sidebar selection, the cursor and text selection, bookmarks and buttons, whatever accent colour is chosen in System Settings.
+
 ---
 
 ## 4. Sidebar
@@ -123,8 +125,8 @@ The sidebar and the right panel each toggle on and off. One project is open at a
 - **Selecting:** click selects one file. ⌘-click adds or removes a file. ⇧-click selects a range. The editor shows all selected files in sidebar order.
 - **Rename:** double-click the name, type, then Return.
 - **Notes vs. drafts:** right-click → "Make Note" / "Make Draft". Notes show a note icon and never count toward the draft word count.
-- **File icons:** up to 3 per file. They're drawn slightly overlapping, fanned like playing cards, to save room. Assign them from the right-click menu. Icons are defined per project (name, color, symbol) and you can make as many as you like. The defaults are the five story beats in §2. *Where you create and edit icon definitions (assumed: a small sheet reached from the right-click menu → "Edit Icons…").*
-- **Working File:** shown with a **fat arrow** glyph. Only one file per project can be the Working File (see §8).
+- **File icons:** up to 3 per file. They're drawn slightly overlapping, fanned like playing cards, to save room. Assign them from the right-click menu. Icons are defined per project (name, color, symbol) and you can make as many as you like. The defaults are the five story beats in §2. Right-click → **Icons ▸** lists every icon with a checkmark; with several files selected, choosing an icon adds it to all of them (or removes it if they all have it). Icons are drawn as small coloured discs with a white symbol. **Edit Icons…** at the bottom of that menu opens a sheet: name, colour and symbol (from a built-in list) for each icon, drag to reorder, add or delete. Deleting an icon removes it from every file **(assumed)**.
+- **Working File:** shown with a coral **fat arrow** in front of its name (in place of the note icon, if it's a note). Only one file per project can be the Working File (see §8).
 - **New file:** ⌘N creates a draft below the current selection. ⌥⌘N creates a note **(assumed)**. The **+** button under the file list does the same: click for a draft, hold for a note.
 - **Delete** (Delete key, or right-click → Move to Trash…): asks first, then moves the file to the project's trash (§11). Anything nested inside it goes too, and the confirmation says how many. It is never deleted permanently from here.
 - **Right-click** acts on the whole selection if you click a selected file, or on just the clicked file otherwise (as in Finder).
@@ -186,7 +188,7 @@ Font, size, alignment (justified by default, or left), line height, indent size,
 ## 8. Working File
 
 - Exactly one file per project can be the Working File. It's marked with a fat arrow in the sidebar.
-- **Set it:** right-click → "Set as Working File", or **⇧⌘J** **(assumed)**.
+- **Set it:** right-click → "Set as Working File" (or "Clear Working File"), or **⇧⌘J** **(assumed)** with one file selected. Both shortcuts live in a **Navigate** menu.
 - **Jump to it:** **⌘J** **(assumed)** selects it and puts the cursor back where you left off.
 - Opening a project does **not** jump to the Working File; it restores whatever was last open (§5).
 
@@ -209,7 +211,9 @@ Font, size, alignment (justified by default, or left), line height, indent size,
   - Selected Outline
   - Total Draft (whole project)
   - Total Outline (whole project)
-- **Counting method:** match Microsoft Word, so numbers agree with what agents and publishers see. Check this against Word with a sample text, including em-dashed words, hyphens, ellipses and numbers.
+- **Counting method:** match Microsoft Word, so numbers agree with what agents and publishers see. Word counts every run of characters between spaces as one word, so `well-known` and `word—word` (no spaces) are one word each, and a spaced dash ` — ` or a lone `…` counts as a word. *Still to check against Word itself with a sample text.*
+- The count updates when you pause typing (each autosave), not on every keystroke **(assumed)**.
+- With only notes selected, the bar says "Notes aren't counted".
 
 ---
 
@@ -225,10 +229,13 @@ Font, size, alignment (justified by default, or left), line height, indent size,
 
 ## 12. Other features
 
-- **Header:** shows the file name. Click and type to rename it when one file is selected. With several selected it shows "Name, Name, …" and can't be edited.
+- **Header:** shows the file name. Click and type to rename it when one file is selected; Return or clicking away saves, Esc puts the old name back. With several selected it shows "Name, Name, …" and can't be edited.
 - **Split view:** two editor panes side by side, one of them active (clearly highlighted). Selecting in the sidebar changes what the **active** pane shows, and clicking into a pane makes the sidebar show that pane's selection. Toggle with **⌘\\** **(assumed)**.
 - **Read mode** (eye icon, **⇧⌘R** **(assumed)**) hides comments, outlines and bookmarks, so you can just read the draft. Read mode is **read-only (assumed)**: editing while things are hidden risks deleting text you can't see. Exit Read mode to edit.
 - **One-click copy:** a copy button in the top corner of every file. It copies the **draft text only**, with no comments, bookmarks or outline. The copy is formatted text (italics, bold, curly quotes), so it pastes cleanly into Word, Google Docs or email, and also includes a plain-text version.
+  - The button in the header's corner copies **all selected files**. When several are shown, each file's dashed header line also has its own copy icon for just that file.
+  - The copy uses the editor's font at 12 pt, with book-style first-line indents for drafts and one empty line between files. New York becomes Times New Roman and SF becomes Helvetica Neue, since Mac system fonts don't travel to other apps **(assumed)**.
+  - Paragraphs holding only a comment are dropped, as is the space in front of each comment.
 - **⌘K search:** an overlay you type into, with results as you type. It searches **everything**: file names, drafts, outlines, notes, comments and bookmarks. Results are grouped by type, each with a preview snippet. Use the arrow keys to move and Return to jump.
 
 ---

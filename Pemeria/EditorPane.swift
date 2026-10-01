@@ -13,12 +13,7 @@ struct EditorPane: View {
             ContentUnavailableView("No File Selected", systemImage: "doc.text", description: Text("Select a file in the sidebar."))
         } else {
             VStack(spacing: 0) {
-                Text(files.map(\.title).joined(separator: ", "))
-                    .font(.headline)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
+                EditorHeader(model: model, files: files)
                 Divider()
                 if model.readMode {
                     EditorView(model: model, mode: .reading)
@@ -31,8 +26,151 @@ struct EditorPane: View {
                 } else {
                     EditorView(model: model, mode: .full)
                 }
+                Divider()
+                WordCountBar(model: model)
             }
         }
+    }
+}
+
+/// The file name above the editor, with the one-click copy button in its corner.
+/// With one file selected the name is editable in place (SPEC.md §12).
+private struct EditorHeader: View {
+    let model: ProjectModel
+    let files: [PemeriaFile]
+
+    var body: some View {
+        ZStack {
+            if files.count == 1, let file = files.first {
+                HeaderTitleField(model: model, file: file)
+                    .id(file.id)
+            } else {
+                Text(files.map(\.title).joined(separator: ", "))
+                    .font(.headline)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 48)
+        .padding(.vertical, 8)
+        .overlay(alignment: .trailing) {
+            CopyButton(help: files.count == 1 ? "Copy Draft Text" : "Copy Draft Text of All \(files.count) Files") {
+                model.copyDraftText(of: files.map(\.id))
+            }
+            .padding(.trailing, 12)
+        }
+    }
+}
+
+/// Click and type to rename. Return or clicking away saves; Esc puts the old name back.
+private struct HeaderTitleField: View {
+    let model: ProjectModel
+    let file: PemeriaFile
+    @State private var text = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        TextField("Name", text: $text)
+            .textFieldStyle(.plain)
+            .font(.headline)
+            .multilineTextAlignment(.center)
+            .focused($focused)
+            .onAppear { text = file.title }
+            .onChange(of: file.title) { _, title in
+                if !focused { text = title }
+            }
+            .onChange(of: focused) { _, isFocused in
+                if !isFocused { commit() }
+            }
+            .onSubmit { focused = false }
+            // Clicking another file mid-rename removes this field before it loses focus.
+            .onDisappear { commit() }
+            .onExitCommand {
+                text = file.title
+                focused = false
+            }
+            .help("Click to rename")
+    }
+
+    private func commit() {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty || trimmed == file.title {
+            text = file.title
+        } else {
+            model.rename(file.id, to: trimmed)
+        }
+    }
+}
+
+/// A copy icon that briefly turns into a checkmark.
+struct CopyButton: View {
+    let help: String
+    let action: () -> Void
+    @State private var copied = false
+
+    var body: some View {
+        Button {
+            action()
+            copied = true
+            Task {
+                try? await Task.sleep(for: .seconds(1.2))
+                copied = false
+            }
+        } label: {
+            Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                .contentTransition(.symbolEffect(.replace))
+                .frame(width: 18)
+        }
+        .buttonStyle(.borderless)
+        .help(help)
+    }
+}
+
+/// The word count of the selected drafts' text; click for the full breakdown (SPEC.md §10).
+private struct WordCountBar: View {
+    let model: ProjectModel
+    @State private var showingDetails = false
+
+    var body: some View {
+        let counts = model.wordCounts
+        let hasDrafts = model.selection.contains { model.project.files[$0]?.kind == .draft }
+        Button {
+            showingDetails.toggle()
+        } label: {
+            Text(hasDrafts ? Self.words(counts.selectedDraft) : "Notes aren’t counted")
+                .font(.system(size: 11))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 5)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Word count. Click for details.")
+        .popover(isPresented: $showingDetails, arrowEdge: .top) {
+            Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 6) {
+                row("Selected Draft", counts.selectedDraft)
+                row("Selected Outline", counts.selectedOutline)
+                Divider()
+                row("Total Draft", counts.totalDraft)
+                row("Total Outline", counts.totalOutline)
+            }
+            .padding(14)
+        }
+    }
+
+    private func row(_ title: String, _ count: Int) -> some View {
+        GridRow {
+            Text(title)
+            Text(count, format: .number)
+                .monospacedDigit()
+                .gridColumnAlignment(.trailing)
+        }
+    }
+
+    static func words(_ count: Int) -> String {
+        count == 1 ? "1 word" : "\(count.formatted()) words"
     }
 }
 

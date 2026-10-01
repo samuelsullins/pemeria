@@ -93,6 +93,11 @@ struct EditorStyle: Equatable {
 }
 
 enum Theme {
+    /// Pemeria's deep coral. Used directly (rather than the system accent) so it holds even
+    /// when the user has picked an accent colour in System Settings.
+    static let accent = NSColor(named: "AccentColor") ?? .controlAccentColor
+    static let accentColor = Color(nsColor: accent)
+
     static func apply() {
         switch UserDefaults.standard.string(forKey: PreferenceKey.theme) {
         case "light": NSApp.appearance = NSAppearance(named: .aqua)

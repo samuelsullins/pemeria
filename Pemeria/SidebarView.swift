@@ -143,9 +143,13 @@ struct SidebarView: NSViewRepresentable {
         func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
             guard let id = id(of: item), let file = project.files[id] else { return nil }
             let cell = outlineView.makeView(withIdentifier: SidebarCell.identifier, owner: nil) as? SidebarCell ?? SidebarCell()
-            cell.configure(with: file)
+            cell.configure(with: file, icons: project.icons(of: id), isWorkingFile: project.manifest.workingFile == id)
             cell.textField?.delegate = self
             return cell
+        }
+
+        func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
+            SidebarRowView()
         }
 
         func outlineViewSelectionDidChange(_ notification: Notification) {
@@ -259,8 +263,53 @@ struct SidebarView: NSViewRepresentable {
                 menu.addItem(withTitle: "Make Draft", action: #selector(makeDraft), keyEquivalent: "").target = self
             }
             menu.addItem(.separator())
+            addIconsMenu(to: menu)
+            if menuTargets.count == 1, let target = menuTargets.first {
+                if project.manifest.workingFile == target {
+                    menu.addItem(withTitle: "Clear Working File", action: #selector(clearWorkingFile), keyEquivalent: "").target = self
+                } else {
+                    let item = menu.addItem(withTitle: "Set as Working File", action: #selector(setWorkingFile), keyEquivalent: "j")
+                    item.keyEquivalentModifierMask = [.command, .shift]
+                    item.target = self
+                }
+            }
+            menu.addItem(.separator())
             menu.addItem(withTitle: "Move to Trash…", action: #selector(trashClicked), keyEquivalent: "").target = self
         }
+
+        /// "Icons ▸" with a checkable item per icon, then "Edit Icons…".
+        private func addIconsMenu(to menu: NSMenu) {
+            let submenu = NSMenu()
+            let targets = menuTargets.compactMap { project.files[$0] }
+            for definition in project.manifest.icons {
+                let item = submenu.addItem(withTitle: definition.name, action: #selector(toggleIcon(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = definition.id
+                item.image = IconBadge.symbolImage(for: definition, pointSize: 12)
+                let having = targets.filter { $0.icons.contains(definition.id) }.count
+                item.state = having == targets.count ? .on : having > 0 ? .mixed : .off
+                // Adding needs room on at least one file.
+                if having < targets.count {
+                    item.isEnabled = targets.contains {
+                        !$0.icons.contains(definition.id) && project.icons(of: $0.id).count < Project.maxIconsPerFile
+                    }
+                }
+            }
+            if !project.manifest.icons.isEmpty { submenu.addItem(.separator()) }
+            submenu.addItem(withTitle: "Edit Icons…", action: #selector(editIcons), keyEquivalent: "").target = self
+            let parent = menu.addItem(withTitle: "Icons", action: nil, keyEquivalent: "")
+            parent.submenu = submenu
+            submenu.autoenablesItems = false
+        }
+
+        @objc private func toggleIcon(_ sender: NSMenuItem) {
+            guard let id = sender.representedObject as? String else { return }
+            model.toggleIcon(id, on: menuTargets)
+        }
+
+        @objc private func editIcons() { model.isEditingIcons = true }
+        @objc private func setWorkingFile() { model.setWorkingFile(menuTargets.first) }
+        @objc private func clearWorkingFile() { model.setWorkingFile(nil) }
 
         @objc private func newDraft() { model.newFile(kind: .draft, after: menuTargets.last) }
         @objc private func newNote() { model.newFile(kind: .note, after: menuTargets.last) }
@@ -322,21 +371,26 @@ final class SidebarCell: NSTableCellView {
 
     private let icon = NSImageView()
     private let label = NSTextField(labelWithString: "")
+    private let badges = IconFanView()
 
     init() {
         super.init(frame: .zero)
         identifier = Self.identifier
 
         icon.translatesAutoresizingMaskIntoConstraints = false
-        icon.contentTintColor = .secondaryLabelColor
         label.translatesAutoresizingMaskIntoConstraints = false
         label.lineBreakMode = .byTruncatingTail
         label.isEditable = false
         label.isSelectable = false
         label.cell?.usesSingleLineMode = true
         label.focusRingType = .none
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        badges.translatesAutoresizingMaskIntoConstraints = false
+        badges.setContentHuggingPriority(.required, for: .horizontal)
+        badges.setContentCompressionResistancePriority(.required, for: .horizontal)
         addSubview(icon)
         addSubview(label)
+        addSubview(badges)
         imageView = icon
         textField = label
 
@@ -346,8 +400,10 @@ final class SidebarCell: NSTableCellView {
             icon.widthAnchor.constraint(equalToConstant: 16),
             icon.heightAnchor.constraint(equalToConstant: 16),
             label.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 5),
-            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
+            badges.leadingAnchor.constraint(greaterThanOrEqualTo: label.trailingAnchor, constant: 4),
+            badges.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            badges.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }
 
@@ -355,14 +411,127 @@ final class SidebarCell: NSTableCellView {
         fatalError("init(coder:) is not used")
     }
 
-    func configure(with file: PemeriaFile) {
+    override var backgroundStyle: NSView.BackgroundStyle {
+        didSet { updateIconTint() }
+    }
+
+    private var isWorkingFile = false
+
+    func configure(with file: PemeriaFile, icons: [IconDefinition], isWorkingFile: Bool) {
         label.stringValue = file.title
         label.isEditable = false
-        switch file.kind {
-        case .note:
-            icon.image = NSImage(systemSymbolName: "note.text", accessibilityDescription: "Note")
-        case .draft:
-            icon.image = nil
+        self.isWorkingFile = isWorkingFile
+        // The Working File's fat arrow takes the leading spot (SPEC.md §8).
+        if isWorkingFile {
+            icon.image = NSImage(systemSymbolName: "arrowshape.right.fill", accessibilityDescription: "Working File")
+            icon.toolTip = file.kind == .note ? "Working File (a note)" : "Working File"
+        } else {
+            icon.image = file.kind == .note ? NSImage(systemSymbolName: "note.text", accessibilityDescription: "Note") : nil
+            icon.toolTip = nil
         }
+        badges.icons = icons
+        updateIconTint()
+    }
+
+    private func updateIconTint() {
+        let selected = backgroundStyle == .emphasized
+        icon.contentTintColor = isWorkingFile ? (selected ? .white : Theme.accent) : (selected ? .white : .secondaryLabelColor)
+    }
+}
+
+/// Up to three file icons, overlapping and fanned like a hand of cards (SPEC.md §4).
+final class IconFanView: NSView {
+    var icons: [IconDefinition] = [] {
+        didSet {
+            guard icons != oldValue else { return }
+            invalidateIntrinsicContentSize()
+            needsDisplay = true
+            toolTip = icons.isEmpty ? nil : icons.map(\.name).joined(separator: ", ")
+        }
+    }
+
+    static let size: CGFloat = 16
+    static let step: CGFloat = 10
+
+    override var intrinsicContentSize: NSSize {
+        guard !icons.isEmpty else { return NSSize(width: 0, height: Self.size) }
+        return NSSize(width: Self.size + CGFloat(icons.count - 1) * Self.step + 4, height: Self.size + 4)
+    }
+
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        let angles: [CGFloat] = switch icons.count {
+        case 1: [0]
+        case 2: [-7, 7]
+        default: [-10, 0, 10]
+        }
+        for (index, definition) in icons.enumerated() {
+            let center = CGPoint(x: 2 + Self.size / 2 + CGFloat(index) * Self.step, y: bounds.midY)
+            context.saveGState()
+            context.translateBy(x: center.x, y: center.y)
+            context.rotate(by: angles[index] * .pi / 180)
+            IconBadge.draw(definition, in: CGRect(x: -Self.size / 2, y: -Self.size / 2, width: Self.size, height: Self.size))
+            context.restoreGState()
+        }
+    }
+}
+
+/// An icon drawn as a coloured disc with a white symbol: the sidebar's badge.
+enum IconBadge {
+    static func draw(_ definition: IconDefinition, in rect: CGRect) {
+        let color = NSColor(hex: definition.color) ?? .secondaryLabelColor
+        NSGraphicsContext.saveGraphicsState()
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.35)
+        shadow.shadowBlurRadius = 1.5
+        shadow.shadowOffset = NSSize(width: 0, height: -0.5)
+        shadow.set()
+        color.setFill()
+        NSBezierPath(ovalIn: rect).fill()
+        NSGraphicsContext.restoreGraphicsState()
+
+        let configuration = NSImage.SymbolConfiguration(pointSize: rect.height * 0.5, weight: .bold)
+            .applying(.init(paletteColors: [.white]))
+        if let symbol = NSImage(systemSymbolName: definition.symbol, accessibilityDescription: definition.name)?
+            .withSymbolConfiguration(configuration) {
+            let size = symbol.size
+            symbol.draw(in: CGRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2, width: size.width, height: size.height))
+        }
+    }
+
+    /// The symbol alone, in the icon's colour, for menus.
+    static func symbolImage(for definition: IconDefinition, pointSize: CGFloat) -> NSImage? {
+        let color = NSColor(hex: definition.color) ?? .secondaryLabelColor
+        return NSImage(systemSymbolName: definition.symbol, accessibilityDescription: definition.name)?
+            .withSymbolConfiguration(.init(pointSize: pointSize, weight: .regular).applying(.init(paletteColors: [color])))
+    }
+}
+
+/// Draws the selection in Pemeria's coral rather than the system accent.
+final class SidebarRowView: NSTableRowView {
+    override func drawSelection(in dirtyRect: NSRect) {
+        let color = isEmphasized ? Theme.accent : NSColor.unemphasizedSelectedContentBackgroundColor
+        color.setFill()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 10, dy: 1), xRadius: 6, yRadius: 6).fill()
+    }
+}
+
+extension NSColor {
+    /// "#RRGGBB" (or without the #).
+    convenience init?(hex: String) {
+        var digits = hex.trimmingCharacters(in: .whitespaces)
+        if digits.hasPrefix("#") { digits.removeFirst() }
+        guard digits.count == 6, let value = UInt32(digits, radix: 16) else { return nil }
+        self.init(srgbRed: CGFloat((value >> 16) & 0xFF) / 255, green: CGFloat((value >> 8) & 0xFF) / 255,
+                  blue: CGFloat(value & 0xFF) / 255, alpha: 1)
+    }
+
+    /// "#RRGGBB" in sRGB.
+    var hexString: String {
+        let color = usingColorSpace(.sRGB) ?? self
+        func byte(_ component: CGFloat) -> Int { Int((min(max(component, 0), 1) * 255).rounded()) }
+        return String(format: "#%02X%02X%02X", byte(color.redComponent), byte(color.greenComponent), byte(color.blueComponent))
     }
 }
