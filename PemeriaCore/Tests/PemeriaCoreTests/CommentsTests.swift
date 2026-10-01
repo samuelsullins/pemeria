@@ -37,7 +37,8 @@ struct CommentsTests {
         let b = project.createFile(kind: .draft, title: "B", after: a.id)
         _ = project.setContent(a.id, body: [
             .paragraph(Paragraph("Text. // fix this.")),
-            .bookmark(Bookmark(id: "bm01", name: "Here")),
+            .bookmark(Bookmark(id: "bm01", name: "Here", offset: 3)),
+            .paragraph(Paragraph("Second paragraph.")),
         ], outline: [.paragraph(Paragraph("// outline note"))])
         _ = project.setContent(b.id, body: [.paragraph(Paragraph("// in B"))], outline: nil)
 
@@ -48,12 +49,14 @@ struct CommentsTests {
 
         let bookmarks = project.bookmarks()
         #expect(bookmarks.map(\.bookmark.name) == ["Here"])
-        #expect(bookmarks[0].location.line == 1)
+        #expect(bookmarks[0].location.paragraph == 1)
+        #expect(bookmarks[0].location.range.location == 3)
 
-        _ = project.renameBookmark(at: bookmarks[0].location, to: "There")
+        _ = project.renameBookmark("bm01", in: a.id, inOutline: false, to: "There")
         #expect(project.bookmarks().map(\.bookmark.name) == ["There"])
-        _ = project.removeBookmark(at: bookmarks[0].location)
+        #expect(project.bookmarks()[0].bookmark.offset == 3)
+        _ = project.removeBookmark("bm01", in: a.id, inOutline: false)
         #expect(project.bookmarks().isEmpty)
-        #expect(project.files[a.id]!.body.count == 1)
+        #expect(project.files[a.id]!.body.count == 2)
     }
 }

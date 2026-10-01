@@ -9,7 +9,7 @@ final class BookmarkNamePrompt: NSViewController, NSTextFieldDelegate, NSPopover
     private let popover = NSPopover()
     private var onCommit: ((String) -> Void)?
 
-    static func show(relativeTo rect: NSRect, of view: NSView, onCommit: @escaping (String) -> Void) {
+    static func show(relativeTo rect: NSRect, of view: NSView, preferredEdge: NSRectEdge, onCommit: @escaping (String) -> Void) {
         current?.popover.close()
         let prompt = BookmarkNamePrompt()
         prompt.onCommit = onCommit
@@ -17,7 +17,7 @@ final class BookmarkNamePrompt: NSViewController, NSTextFieldDelegate, NSPopover
         prompt.popover.behavior = .transient
         prompt.popover.delegate = prompt
         current = prompt
-        prompt.popover.show(relativeTo: rect, of: view, preferredEdge: .maxY)
+        prompt.popover.show(relativeTo: rect, of: view, preferredEdge: preferredEdge)
         prompt.view.window?.makeFirstResponder(prompt.field)
     }
 

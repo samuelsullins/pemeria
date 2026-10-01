@@ -77,14 +77,18 @@ public struct Paragraph: Hashable, Sendable {
     }
 }
 
-/// A named marker on a line. Drawn as a labeled dotted line above the line it marks.
+/// A named spot in the text. Stored as its own line just before the paragraph it's in, with
+/// `offset` saying where in that paragraph it sits; the editor shows it inline at that spot.
 public struct Bookmark: Hashable, Sendable {
     public var id: String
     public var name: String
+    /// Position in the following paragraph, in UTF-16 units of its text (0 = the start).
+    public var offset: Int
 
-    public init(id: String, name: String) {
+    public init(id: String, name: String, offset: Int = 0) {
         self.id = id
         self.name = name
+        self.offset = offset
     }
 
     /// A new random bookmark id that isn't in `existing`.
@@ -98,19 +102,60 @@ public enum Block: Hashable, Sendable {
     case paragraph(Paragraph)
     case bookmark(Bookmark)
 
-    /// The canonical form of a list of blocks: paragraphs normalized and split at any
-    /// newlines they contain, newlines in bookmark names replaced with spaces.
+    /// The canonical form of a list of blocks:
+    /// - paragraphs normalized and split at any newlines they contain;
+    /// - bookmark ids cleaned and names made single-line;
+    /// - every bookmark directly before the paragraph it belongs to, offsets within that
+    ///   paragraph's length, in offset order. Bookmarks with no paragraph after them move to
+    ///   the end of the paragraph before; with no paragraphs at all, an empty one is added.
+    ///   Offsets snap back to the start of the character they fall inside.
     public static func canonical(_ blocks: [Block]) -> [Block] {
-        blocks.flatMap { block -> [Block] in
+        let cleaned = blocks.flatMap { block -> [Block] in
             switch block {
             case .bookmark(let bookmark):
                 var id = bookmark.id.lowercased().filter { Identifier.alphabet.contains($0) }
                 if id.isEmpty { id = "0" }
-                return [.bookmark(Bookmark(id: String(id.prefix(64)), name: bookmark.name.singleLine))]
+                return [.bookmark(Bookmark(id: String(id.prefix(64)), name: bookmark.name.singleLine, offset: max(0, bookmark.offset)))]
             case .paragraph(let paragraph):
                 return paragraph.splitAtNewlines().map { .paragraph($0.normalized()) }
             }
         }
+
+        var result: [Block] = []
+        var pending: [Bookmark] = []
+        var lastParagraph: (index: Int, length: Int)?
+        for block in cleaned {
+            switch block {
+            case .bookmark(let bookmark):
+                pending.append(bookmark)
+            case .paragraph(let paragraph):
+                let text = paragraph.text as NSString
+                let length = text.length
+                // Between whole characters only: never inside an emoji or before its accent.
+                func boundary(_ offset: Int) -> Int {
+                    offset >= length ? length : text.rangeOfComposedCharacterSequence(at: offset).location
+                }
+                let placed = pending
+                    .map { Bookmark(id: $0.id, name: $0.name, offset: boundary($0.offset)) }
+                    .enumerated()
+                    .sorted { ($0.element.offset, $0.offset) < ($1.element.offset, $1.offset) }
+                    .map { Block.bookmark($0.element) }
+                result += placed
+                pending = []
+                lastParagraph = (result.count, length)
+                result.append(block)
+            }
+        }
+        if !pending.isEmpty {
+            if let last = lastParagraph {
+                let moved = pending.map { Block.bookmark(Bookmark(id: $0.id, name: $0.name, offset: last.length)) }
+                result.insert(contentsOf: moved, at: last.index)
+            } else {
+                result += pending.map { Block.bookmark(Bookmark(id: $0.id, name: $0.name, offset: 0)) }
+                result.append(.paragraph(Paragraph(runs: [])))
+            }
+        }
+        return result
     }
 }
 

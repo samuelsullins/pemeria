@@ -13,7 +13,7 @@ struct FileCodecTests {
         ---
         The lamp had been dark for *eleven* years.
         She climbed anyway. // Too abrupt? Maybe add a beat here.
-        <!-- bookmark b7c1: The storm starts -->
+        <!-- bookmark b7c1 @10: The storm starts -->
         Rain came sideways off the water — **hard**.
         <!-- outline -->
         Mara reaches the lighthouse. Finds the logbook. Storm hits.
@@ -31,7 +31,7 @@ struct FileCodecTests {
         #expect(file.body == [
             .paragraph(Paragraph(runs: [Run("The lamp had been dark for "), Run("eleven", .italic), Run(" years.")])),
             .paragraph(Paragraph(runs: [Run("She climbed anyway. // Too abrupt? Maybe add a beat here.")])),
-            .bookmark(Bookmark(id: "b7c1", name: "The storm starts")),
+            .bookmark(Bookmark(id: "b7c1", name: "The storm starts", offset: 10)),
             .paragraph(Paragraph(runs: [Run("Rain came sideways off the water — "), Run("hard", .bold), Run(".")])),
         ])
         #expect(file.outline == [.paragraph(Paragraph("Mara reaches the lighthouse. Finds the logbook. Storm hits."))])

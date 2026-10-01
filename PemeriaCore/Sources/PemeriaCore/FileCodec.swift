@@ -12,7 +12,7 @@ import Foundation
 /// icons: inciting-incident, crisis
 /// ---
 /// The lamp had been dark for *eleven* years.
-/// <!-- bookmark b7c1: The storm starts -->
+/// <!-- bookmark b7c1 @12: The storm starts -->
 /// <!-- outline -->
 /// Mara reaches the lighthouse.
 /// ```
@@ -93,7 +93,8 @@ public enum FileCodec {
         case .paragraph(let paragraph):
             return InlineCodec.encode(paragraph)
         case .bookmark(let bookmark):
-            return "\(bookmarkPrefix)\(field(bookmark.id, bookmark.name))\(markerSuffix)"
+            let key = bookmark.offset > 0 ? "\(bookmark.id) @\(bookmark.offset)" : bookmark.id
+            return "\(bookmarkPrefix)\(field(key, bookmark.name))\(markerSuffix)"
         }
     }
 
@@ -111,8 +112,18 @@ public enum FileCodec {
         let inner = String(String.UnicodeScalarView(
             scalars.dropFirst(bookmarkPrefix.unicodeScalars.count).dropLast(markerSuffix.unicodeScalars.count)
         ))
-        guard let (id, name) = splitField(inner), Identifier.isValid(id) else { return nil }
-        return Bookmark(id: id, name: name)
+        guard let (key, name) = splitField(inner) else { return nil }
+        // "b7c1" or "b7c1 @12"
+        let parts = key.split(separator: " ", omittingEmptySubsequences: false)
+        let id = String(parts[0])
+        guard Identifier.isValid(id) else { return nil }
+        var offset = 0
+        if parts.count == 2, parts[1].hasPrefix("@"), let value = Int(parts[1].dropFirst()), value >= 0, String(value) == parts[1].dropFirst() {
+            offset = value
+        } else if parts.count != 1 {
+            return nil
+        }
+        return Bookmark(id: id, name: name, offset: offset)
     }
 
     /// Splits `key: value` at the first colon, dropping one space after it.

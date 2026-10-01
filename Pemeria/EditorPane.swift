@@ -23,15 +23,58 @@ struct EditorPane: View {
                 if model.readMode {
                     EditorView(model: model, mode: .reading)
                 } else if model.outlinePinned {
-                    VSplitView {
+                    OutlineSplit {
                         EditorView(model: model, mode: .bodies)
-                            .frame(minHeight: 160)
+                    } bottom: {
                         PinnedOutlinePane(model: model, hasOutlines: files.contains { $0.kind == .draft })
-                            .frame(minHeight: 110, idealHeight: 220)
                     }
                 } else {
                     EditorView(model: model, mode: .full)
                 }
+            }
+        }
+    }
+}
+
+/// Editor above, outline pane below, with a draggable divider. (SwiftUI's VSplitView crashed
+/// here: its split view and the text views fought over layout.)
+private struct OutlineSplit<Top: View, Bottom: View>: View {
+    @ViewBuilder let top: Top
+    @ViewBuilder let bottom: Bottom
+    @AppStorage("outlinePaneHeight") private var paneHeight = 220.0
+    @State private var dragStartHeight: Double?
+
+    private let minTop = 160.0
+    private let minPane = 90.0
+
+    var body: some View {
+        GeometryReader { geometry in
+            let maxPane = max(minPane, geometry.size.height - minTop)
+            let height = min(max(paneHeight, minPane), maxPane)
+            VStack(spacing: 0) {
+                top
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                Divider()
+                    .overlay {
+                        Color.clear
+                            .frame(height: 8)
+                            .contentShape(Rectangle())
+                            .onHover { inside in
+                                if inside { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
+                            }
+                            .gesture(
+                                DragGesture(minimumDistance: 1)
+                                    .onChanged { value in
+                                        let start = dragStartHeight ?? height
+                                        dragStartHeight = start
+                                        paneHeight = min(max(start - value.translation.height, minPane), maxPane)
+                                    }
+                                    .onEnded { _ in dragStartHeight = nil }
+                            )
+                    }
+                bottom
+                    .frame(maxWidth: .infinity)
+                    .frame(height: height)
             }
         }
     }

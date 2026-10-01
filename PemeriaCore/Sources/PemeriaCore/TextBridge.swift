@@ -23,39 +23,55 @@ public final class BookmarkMarker: NSObject, @unchecked Sendable {
 }
 
 /// Converts between blocks and the editor's text: one line per paragraph, italic/bold as a
-/// `.pemeriaStyle` attribute, each bookmark as one invisible character on its own line.
-/// Display attributes (fonts, colors, indents) are the editor's business and are ignored here.
+/// `.pemeriaStyle` attribute, and each bookmark as one object-replacement character placed
+/// inside its paragraph at the bookmark's offset (the editor draws it as an inline tag). Display attributes (fonts, colors, indents) are the
+/// editor's business and are ignored here.
 public enum TextBridge {
-    /// Zero-width "word joiner": the stand-in character for bookmarks and other markers.
+    /// Zero-width "word joiner": the stand-in character for the editor's divider lines.
     public static let markerCharacter: Character = "\u{2060}"
-    static let markerScalar: Unicode.Scalar = "\u{2060}"
+    /// Object replacement character: the stand-in for a bookmark.
+    public static let bookmarkCharacter: Character = "\u{FFFC}"
+    static let strayScalars: Set<Unicode.Scalar> = ["\u{2060}", "\u{FFFC}"]
 
     public static func attributedString(_ blocks: [Block]) -> NSMutableAttributedString {
         let result = NSMutableAttributedString()
-        for (index, block) in Block.canonical(blocks).enumerated() {
-            if index > 0 { result.append(NSAttributedString(string: "\n")) }
+        var pending: [Bookmark] = []
+        var isFirstLine = true
+        for block in Block.canonical(blocks) {
             switch block {
+            case .bookmark(let bookmark):
+                pending.append(bookmark)
             case .paragraph(let paragraph):
+                if !isFirstLine { result.append(NSAttributedString(string: "\n")) }
+                isFirstLine = false
+                let line = NSMutableAttributedString()
                 for run in paragraph.runs {
                     var attributes: [NSAttributedString.Key: Any] = [:]
                     if !run.style.isEmpty { attributes[.pemeriaStyle] = NSNumber(value: run.style.rawValue) }
-                    result.append(NSAttributedString(string: run.text, attributes: attributes))
+                    line.append(NSAttributedString(string: run.text, attributes: attributes))
                 }
-            case .bookmark(let bookmark):
-                result.append(NSAttributedString(
-                    string: String(markerCharacter),
-                    attributes: [.pemeriaBookmark: BookmarkMarker(bookmark)]
-                ))
+                // Insert from the last bookmark back, so earlier offsets still point at the
+                // original text and bookmarks sharing an offset keep their order.
+                for bookmark in pending.reversed() {
+                    line.insert(marker(for: bookmark), at: min(bookmark.offset, line.length))
+                }
+                pending = []
+                result.append(line)
             }
         }
         return result
     }
 
+    /// The character that stands for a bookmark in the editor.
+    public static func marker(for bookmark: Bookmark) -> NSAttributedString {
+        NSAttributedString(string: String(bookmarkCharacter), attributes: [.pemeriaBookmark: BookmarkMarker(bookmark)])
+    }
+
     /// Reads blocks back out of editor text. With `emptyMeansNone`, completely empty text gives
     /// no blocks rather than one empty paragraph (used for outlines).
     ///
-    /// Never loses words: a bookmark that ended up sharing a line with text is kept as its own
-    /// block just before that paragraph, and stray marker characters are dropped.
+    /// Never loses words: each bookmark becomes a block before its paragraph, with its offset
+    /// counted in the paragraph's own text, and stray marker characters are dropped.
     public static func blocks(from text: NSAttributedString, emptyMeansNone: Bool = false) -> [Block] {
         if text.length == 0 { return emptyMeansNone ? [] : [.paragraph(Paragraph(runs: []))] }
 
@@ -74,24 +90,25 @@ public enum TextBridge {
     private static func lineBlocks(_ text: NSAttributedString, _ range: NSRange) -> [Block] {
         var bookmarks: [Block] = []
         var runs: [Run] = []
-        var sawMarker = false
+        var textLength = 0
         text.enumerateAttributes(in: range) { attributes, runRange, _ in
             if let marker = attributes[.pemeriaBookmark] as? BookmarkMarker {
-                bookmarks.append(.bookmark(marker.bookmark))
-                sawMarker = true
+                // One bookmark per character, even if neighbouring markers merged into one run.
+                for _ in 0..<runRange.length {
+                    var bookmark = marker.bookmark
+                    bookmark.offset = textLength
+                    bookmarks.append(.bookmark(bookmark))
+                }
                 return
             }
             let raw = (attributes[.pemeriaStyle] as? NSNumber)?.uint8Value ?? 0
             var piece = (text.string as NSString).substring(with: runRange)
-            if piece.unicodeScalars.contains(markerScalar) {
-                sawMarker = true
-                piece = String(String.UnicodeScalarView(piece.unicodeScalars.filter { $0 != markerScalar }))
+            if piece.unicodeScalars.contains(where: strayScalars.contains) {
+                piece = String(String.UnicodeScalarView(piece.unicodeScalars.filter { !strayScalars.contains($0) }))
             }
+            textLength += (piece as NSString).length
             runs.append(Run(piece, InlineStyle(rawValue: raw)))
         }
-        let paragraph = Paragraph(runs: runs).normalized()
-        // A line that held only a bookmark is just the bookmark, not also an empty paragraph.
-        if sawMarker && paragraph.runs.isEmpty && !bookmarks.isEmpty { return bookmarks }
-        return bookmarks + [.paragraph(paragraph)]
+        return bookmarks + [.paragraph(Paragraph(runs: runs).normalized())]
     }
 }

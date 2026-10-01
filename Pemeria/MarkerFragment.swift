@@ -1,11 +1,10 @@
 import AppKit
 
-/// Draws a marker line (file header, outline divider, bookmark) in place of its invisible character.
+/// Draws a marker line (file header or outline divider) in place of its invisible character.
 final class MarkerFragment: NSTextLayoutFragment {
     enum Kind {
         case fileHeader(title: String)
         case outlineDivider
-        case bookmark(name: String)
     }
 
     let kind: Kind
@@ -79,19 +78,6 @@ final class MarkerFragment: NSTextLayoutFragment {
                 .withSymbolConfiguration(configuration) {
                 image.draw(in: pin)
             }
-
-        case .bookmark(let name):
-            let midY = point.y + height / 2
-            let label = NSAttributedString(string: name.isEmpty ? "Bookmark" : name, attributes: [
-                .font: NSFont.systemFont(ofSize: 11, weight: .medium),
-                .foregroundColor: NSColor.controlAccentColor,
-            ])
-            let size = label.size()
-            let pill = CGRect(x: left, y: midY - size.height / 2 - 2, width: size.width + 14, height: size.height + 4)
-            NSColor.controlAccentColor.withAlphaComponent(0.12).setFill()
-            NSBezierPath(roundedRect: pill, xRadius: pill.height / 2, yRadius: pill.height / 2).fill()
-            label.draw(at: CGPoint(x: pill.minX + 7, y: pill.minY + 2))
-            dashedLine(from: pill.maxX + 6, to: right, y: midY, color: NSColor.controlAccentColor.withAlphaComponent(0.6), dash: [3, 3])
         }
     }
 

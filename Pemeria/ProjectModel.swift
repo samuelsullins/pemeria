@@ -144,7 +144,7 @@ final class ProjectModel {
     }
 
     /// Shows the file containing `location` (selecting it if needed) and moves the cursor there.
-    func jump(to location: TextLocation, isBookmark: Bool) {
+    func jump(to location: TextLocation, bookmarkID: String? = nil) {
         readMode = false
         if !selection.contains(location.fileID) {
             var parent = project.tree.parentOf[location.fileID]
@@ -155,19 +155,21 @@ final class ProjectModel {
             selection = [location.fileID]
         }
         jumpCount += 1
-        jumpRequest = JumpRequest(id: jumpCount, location: location, isBookmark: isBookmark)
+        jumpRequest = JumpRequest(id: jumpCount, location: location, bookmarkID: bookmarkID)
     }
 
-    func renameBookmark(at location: TextLocation, to name: String) {
+    func renameBookmark(_ entry: BookmarkEntry, to name: String) {
         commitEditors()
-        guard let file = project.renameBookmark(at: location, to: name) else { return }
+        guard let file = project.renameBookmark(entry.bookmark.id, in: entry.location.fileID,
+                                                inOutline: entry.location.inOutline, to: name) else { return }
         save([file], structural: false)
         contentToken += 1
     }
 
-    func removeBookmark(at location: TextLocation) {
+    func removeBookmark(_ entry: BookmarkEntry) {
         commitEditors()
-        guard let file = project.removeBookmark(at: location) else { return }
+        guard let file = project.removeBookmark(entry.bookmark.id, in: entry.location.fileID,
+                                                inOutline: entry.location.inOutline) else { return }
         snapshotIfDue(file.id)
         save([file], structural: false)
         contentToken += 1
@@ -229,5 +231,6 @@ final class ProjectModel {
 struct JumpRequest: Equatable {
     let id: Int
     let location: TextLocation
-    let isBookmark: Bool
+    /// Set when jumping to a bookmark: the editor finds its tag directly.
+    let bookmarkID: String?
 }

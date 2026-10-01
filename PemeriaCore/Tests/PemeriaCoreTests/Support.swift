@@ -43,7 +43,7 @@ func randomBlocks(using rng: inout SeededGenerator) -> [Block] {
             let name = (0..<Int.random(in: 0...3, using: &rng))
                 .map { _ in trickyPieces.randomElement(using: &rng)! }
                 .joined()
-            return .bookmark(Bookmark(id: Bookmark.generateID(avoiding: []), name: name))
+            return .bookmark(Bookmark(id: Bookmark.generateID(avoiding: []), name: name, offset: Int.random(in: 0...12, using: &rng)))
         }
         return .paragraph(randomParagraph(using: &rng, allowNewlines: true))
     }

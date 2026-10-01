@@ -67,19 +67,19 @@ public enum Comments {
     }
 }
 
-/// Where something sits inside a file: its body or outline, which line, and where on the line.
+/// Where something sits inside a file: its body or outline, which paragraph, and where in it.
 public struct TextLocation: Hashable, Sendable {
     public var fileID: FileID
     public var inOutline: Bool
-    /// Index into the body's or outline's blocks (one block per line).
-    public var line: Int
-    /// UTF-16 range within that line.
+    /// Index among the body's or outline's paragraphs (bookmarks don't count; they sit inside paragraphs).
+    public var paragraph: Int
+    /// UTF-16 range within that paragraph's text.
     public var range: NSRange
 
-    public init(fileID: FileID, inOutline: Bool, line: Int, range: NSRange) {
+    public init(fileID: FileID, inOutline: Bool, paragraph: Int, range: NSRange) {
         self.fileID = fileID
         self.inOutline = inOutline
-        self.line = line
+        self.paragraph = paragraph
         self.range = range
     }
 }
@@ -98,20 +98,28 @@ public struct BookmarkEntry: Hashable, Sendable, Identifiable {
 }
 
 extension Project {
+    /// A file's body (and, for drafts, outline) as (inOutline, blocks) pairs.
+    private func sections(of file: PemeriaFile) -> [(inOutline: Bool, blocks: [Block])] {
+        var sections: [(Bool, [Block])] = [(false, file.body)]
+        if file.kind == .draft, let outline = file.outline { sections.append((true, outline)) }
+        return sections
+    }
+
     /// Comments in the given files' text and outlines, in book order.
     public func comments(in ids: Set<FileID>) -> [CommentEntry] {
         tree.bookOrder.filter(ids.contains).flatMap { id -> [CommentEntry] in
             guard let file = files[id] else { return [] }
-            var sections: [(Bool, [Block])] = [(false, file.body)]
-            if file.kind == .draft, let outline = file.outline { sections.append((true, outline)) }
-            return sections.flatMap { inOutline, blocks in
-                blocks.enumerated().flatMap { line, block -> [CommentEntry] in
-                    guard case .paragraph(let paragraph) = block else { return [] }
+            return sections(of: file).flatMap { inOutline, blocks in
+                let paragraphs = blocks.compactMap { block -> Paragraph? in
+                    if case .paragraph(let paragraph) = block { return paragraph }
+                    return nil
+                }
+                return paragraphs.enumerated().flatMap { index, paragraph -> [CommentEntry] in
                     let text = paragraph.text as NSString
                     return Comments.ranges(in: paragraph.text).map { range in
                         let body = text.substring(with: NSRange(location: range.location + 2, length: range.length - 2))
                         return CommentEntry(
-                            location: TextLocation(fileID: id, inOutline: inOutline, line: line, range: range),
+                            location: TextLocation(fileID: id, inOutline: inOutline, paragraph: index, range: range),
                             text: body.trimmingCharacters(in: .whitespaces)
                         )
                     }
@@ -124,42 +132,50 @@ extension Project {
     public func bookmarks() -> [BookmarkEntry] {
         tree.bookOrder.flatMap { id -> [BookmarkEntry] in
             guard let file = files[id] else { return [] }
-            var sections: [(Bool, [Block])] = [(false, file.body)]
-            if file.kind == .draft, let outline = file.outline { sections.append((true, outline)) }
-            return sections.flatMap { inOutline, blocks in
-                blocks.enumerated().compactMap { line, block in
-                    guard case .bookmark(let bookmark) = block else { return nil }
-                    return BookmarkEntry(
-                        location: TextLocation(fileID: id, inOutline: inOutline, line: line, range: NSRange(location: 0, length: 1)),
-                        bookmark: bookmark
-                    )
+            return sections(of: file).flatMap { inOutline, blocks -> [BookmarkEntry] in
+                var entries: [BookmarkEntry] = []
+                var paragraphIndex = 0
+                for block in Block.canonical(blocks) {
+                    switch block {
+                    case .paragraph:
+                        paragraphIndex += 1
+                    case .bookmark(let bookmark):
+                        // Canonical blocks always have the bookmark's paragraph right after it.
+                        entries.append(BookmarkEntry(
+                            location: TextLocation(fileID: id, inOutline: inOutline, paragraph: paragraphIndex,
+                                                   range: NSRange(location: bookmark.offset, length: 0)),
+                            bookmark: bookmark
+                        ))
+                    }
                 }
+                return entries
             }
         }
     }
 
-    /// Renames the bookmark at `location`. Returns the changed file, or nil if it isn't there.
-    public mutating func renameBookmark(at location: TextLocation, to name: String) -> PemeriaFile? {
-        editBookmark(at: location) { .bookmark(Bookmark(id: $0.id, name: name.singleLine)) }
+    /// Renames a bookmark. Returns the changed file, or nil if it isn't there.
+    public mutating func renameBookmark(_ bookmarkID: String, in fileID: FileID, inOutline: Bool, to name: String) -> PemeriaFile? {
+        editBookmark(bookmarkID, in: fileID, inOutline: inOutline) { .bookmark(Bookmark(id: $0.id, name: name.singleLine, offset: $0.offset)) }
     }
 
-    /// Removes the bookmark at `location`. Returns the changed file, or nil if it isn't there.
-    public mutating func removeBookmark(at location: TextLocation) -> PemeriaFile? {
-        editBookmark(at: location) { _ in nil }
+    /// Removes a bookmark. Returns the changed file, or nil if it isn't there.
+    public mutating func removeBookmark(_ bookmarkID: String, in fileID: FileID, inOutline: Bool) -> PemeriaFile? {
+        editBookmark(bookmarkID, in: fileID, inOutline: inOutline) { _ in nil }
     }
 
-    private mutating func editBookmark(at location: TextLocation, _ change: (Bookmark) -> Block?) -> PemeriaFile? {
-        guard let file = files[location.fileID] else { return nil }
-        var blocks = (location.inOutline ? file.outline : file.body) ?? []
-        guard blocks.indices.contains(location.line), case .bookmark(let bookmark) = blocks[location.line] else { return nil }
+    private mutating func editBookmark(_ bookmarkID: String, in fileID: FileID, inOutline: Bool, _ change: (Bookmark) -> Block?) -> PemeriaFile? {
+        guard let file = files[fileID] else { return nil }
+        var blocks = (inOutline ? file.outline : file.body) ?? []
+        guard let index = blocks.firstIndex(where: { if case .bookmark(let b) = $0 { return b.id == bookmarkID } else { return false } }),
+              case .bookmark(let bookmark) = blocks[index] else { return nil }
         if let replacement = change(bookmark) {
-            blocks[location.line] = replacement
+            blocks[index] = replacement
         } else {
-            blocks.remove(at: location.line)
+            blocks.remove(at: index)
         }
-        return location.inOutline
-            ? setContent(location.fileID, body: nil, outline: blocks)
-            : setContent(location.fileID, body: blocks, outline: nil)
+        return inOutline
+            ? setContent(fileID, body: nil, outline: blocks)
+            : setContent(fileID, body: blocks, outline: nil)
     }
 
     /// Every bookmark id in use, so new ones can avoid them.

@@ -39,13 +39,6 @@ private struct CommentsSection: View {
         let comments = model.project.comments(in: scope)
         VStack(spacing: 0) {
             SectionHeader(title: "Comments") {
-                Picker("Show", selection: $showAll) {
-                    Text("Selected").tag(false)
-                    Text("All").tag(true)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
                 Button {
                     NSApp.sendAction(#selector(EditorTextView.insertComment(_:)), to: nil, from: nil)
                 } label: {
@@ -54,13 +47,22 @@ private struct CommentsSection: View {
                 .buttonStyle(.borderless)
                 .help("Start a comment at the cursor (⌘/)")
             }
+            Picker("Show", selection: $showAll) {
+                Text("Selected Files").tag(false)
+                Text("All Files").tag(true)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .controlSize(.small)
+            .padding(.horizontal, 12)
+            .padding(.bottom, 8)
             Divider()
             if comments.isEmpty {
                 EmptyPanelNote(text: "Type // in the text to leave a comment.")
             } else {
                 List(comments) { comment in
                     Button {
-                        model.jump(to: comment.location, isBookmark: false)
+                        model.jump(to: comment.location)
                     } label: {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(comment.text.isEmpty ? "(empty comment)" : comment.text)
@@ -111,7 +113,7 @@ private struct BookmarksSection: View {
                     row(entry)
                         .contextMenu {
                             Button("Rename") { startRenaming(entry) }
-                            Button("Delete Bookmark") { model.removeBookmark(at: entry.location) }
+                            Button("Delete Bookmark") { model.removeBookmark(entry) }
                         }
                 }
                 .listStyle(.plain)
@@ -138,7 +140,7 @@ private struct BookmarksSection: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             .onTapGesture(count: 2) { startRenaming(entry) }
-            .onTapGesture { model.jump(to: entry.location, isBookmark: true) }
+            .onTapGesture { model.jump(to: entry.location, bookmarkID: entry.bookmark.id) }
         }
     }
 
@@ -152,7 +154,7 @@ private struct BookmarksSection: View {
         let name = draftName.trimmingCharacters(in: .whitespaces)
         renaming = nil
         if !name.isEmpty, name != entry.bookmark.name {
-            model.renameBookmark(at: entry.location, to: name)
+            model.renameBookmark(entry, to: name)
         }
     }
 }

@@ -62,7 +62,7 @@ icons: inciting-incident, crisis
 ---
 The lamp had been dark for *eleven* years.
 She climbed anyway. // Too abrupt? Maybe add a beat here.
-<!-- bookmark b7c1: The storm starts -->
+<!-- bookmark b7c1 @10: The storm starts -->
 Rain came sideways off the water — **hard**.
 <!-- outline -->
 Mara reaches the lighthouse. Finds the logbook. Storm hits.
@@ -72,6 +72,7 @@ Mara reaches the lighthouse. Finds the logbook. Storm hits.
 - **Paragraphs:** one line = one paragraph. An empty line is an empty paragraph and is kept exactly as written.
 - **Italics and bold** are stored as `*italic*` and `**bold**`. That's the only Markdown used.
 - **Comments** are stored exactly as typed (see §6).
+- **Bookmarks** are stored as their own `<!-- bookmark id @offset: name -->` line just before the paragraph they're in; `@offset` is where in that paragraph they sit (left out when 0). In the editor they appear inline at that spot.
 - **Bookmarks and the outline divider** are stored as `<!-- … -->` lines. Markdown viewers hide those, so the file stays clean to read.
 - **Escaping:** if the prose itself contains a literal `*`, `\`, or `<!--`, it's saved with a backslash in front (`\*`), so it's never mistaken for formatting.
 - **Order** uses sortable keys (`V`, `k`, `kV`…). There's always room for a new key between two others, so moving a file only rewrites that one file.
@@ -168,17 +169,15 @@ Font, size, alignment (justified by default, or left), line height, indent size,
 - **Comments are drawn grayed out**, so they're quiet rather than shouting at you.
 - They're ordinary text, so you edit them normally. They travel with the text they sit next to.
 - **Never counted** in word counts. **Never included** in copy.
-- **Comments panel:** lists comments with a snippet each. Click one to jump to it. A toggle switches between **Selected** (the default: only the files you have selected) and **All** (the whole project). The **+** button inserts `// ` at the cursor.
+- **Comments panel:** lists comments with a snippet each. Click one to jump to it. A filter under the title switches between **Selected Files** (the default) and **All Files** (the whole project). The **+** button inserts `// ` at the cursor.
 
 ---
 
 ## 7. Bookmarks
 
-- **⌘D** opens a small name popup at the cursor, Blender-style. Type a name, press Return, done. Esc cancels.
-- **A bookmark marks a line.** It's drawn as a **labeled dotted line** above that line, styled clearly differently from the page-break line between files (accent color plus the bookmark's name).
-- **One unit:** the bookmark behaves as a single piece in the text. Backspace removes the whole thing, and undo brings it back. The cursor hops over bookmark lines like it does over divider lines. Leaving the name empty names the bookmark after the first few words of its line **(assumed)**.
-- **Right-click a bookmark** in the panel to rename or delete it.
-- **Bookmarks panel:** lists all bookmarks in the project, in book order **(assumed: always project-wide, since bookmarks are for navigation)**. Click one to jump. Double-click to rename. The **+** button does the same as ⌘D.
+- **⌘D** opens a small name popup at the cursor, Blender-style. Type a name, press Return, done. Esc cancels. The popup opens below the cursor, or above it when the cursor is low in the window. Leaving the name empty names the bookmark after the next few words **(assumed)**.
+- **A bookmark marks an exact spot**, even mid-paragraph: it's drawn inline as a small accent tag with its name and an **×**. Click the × to delete it; ⌘Z brings it back. It moves with the text around it. It's deleted like a single character, too.
+- **Bookmarks panel:** lists all bookmarks in the project, in book order **(assumed: always project-wide, since bookmarks are for navigation)**. Click one to jump. Double-click to rename. Right-click to rename or delete. The **+** button does the same as ⌘D.
 
 ---
 
