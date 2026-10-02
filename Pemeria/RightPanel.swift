@@ -51,6 +51,7 @@ private struct CommentsSection: View {
                 .buttonStyle(.borderless)
                 .help("Start a comment at the cursor (⌘/)")
             }
+            Divider()
             Picker("Show", selection: $showAll) {
                 Text("Selected Files").tag(false)
                 Text("All Files").tag(true)
@@ -59,8 +60,7 @@ private struct CommentsSection: View {
             .labelsHidden()
             .controlSize(.small)
             .padding(.horizontal, 12)
-            .padding(.bottom, 8)
-            Divider()
+            .padding(.vertical, 8)
             if comments.isEmpty {
                 EmptyPanelNote(text: "Type // in the text to leave a comment.")
             } else {

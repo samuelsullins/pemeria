@@ -36,9 +36,50 @@ final class ProjectModel {
         didSet { if outlinePinned != oldValue { saveState() } }
     }
 
-    /// Read mode (SPEC.md §12): comments, outlines and bookmarks hidden; not editable.
-    var readMode = false {
+    /// The panes in Read mode (SPEC.md §12): comments, outlines and bookmarks hidden; not editable.
+    /// Each pane has its own; unsplit, only pane 0 counts.
+    private(set) var readingPanes: Set<Int> = [] {
         willSet { commitEditors() }
+    }
+
+    func isReading(pane: Int) -> Bool { readingPanes.contains(pane) }
+
+    /// Read mode on or off for a pane; the active one by default.
+    func toggleReadMode(pane: Int? = nil) {
+        let pane = pane ?? activePane
+        if readingPanes.contains(pane) {
+            readingPanes.remove(pane)
+        } else {
+            // Read mode reads the draft, so it brings back Draft view.
+            setOutlineView(false, pane: pane)
+            readingPanes.insert(pane)
+        }
+    }
+
+    /// The panes in Outline view: only the selected drafts' outlines, each under its file's name.
+    /// Each pane has its own, like Read mode.
+    private(set) var outlinePanes: Set<Int> = [] {
+        willSet { commitEditors() }
+    }
+
+    func isOutlineView(pane: Int) -> Bool { outlinePanes.contains(pane) }
+
+    /// Switches a pane (the active one by default) between Draft and Outline view.
+    /// Outline view leaves Read mode, which only reads the draft.
+    func setOutlineView(_ on: Bool, pane: Int? = nil) {
+        let pane = pane ?? activePane
+        guard outlinePanes.contains(pane) != on else { return }
+        if on {
+            if readingPanes.contains(pane) { readingPanes.remove(pane) }
+            outlinePanes.insert(pane)
+        } else {
+            outlinePanes.remove(pane)
+        }
+    }
+
+    /// Leaves Read mode in the active pane, e.g. before jumping somewhere to edit.
+    private func exitReadModeInActivePane() {
+        if readingPanes.contains(activePane) { readingPanes.remove(activePane) }
     }
 
     /// A comment or bookmark to move to, set by the right panel and cleared by the editor that shows it.
@@ -66,6 +107,8 @@ final class ProjectModel {
     func toggleSplit() {
         commitEditors()
         if isSplit {
+            // The active pane's files stay, and its Read mode and view with them.
+            keepPaneState(ofPane: activePane)
             if activePane != 0 { activePane = 0 }
             isSplit = false
         } else {
@@ -73,6 +116,24 @@ final class ProjectModel {
             activePane = 0
             isSplit = true
         }
+    }
+
+    /// Closes one pane of the split; the other one stays and becomes the only pane.
+    func closePane(_ pane: Int) {
+        guard isSplit else { return }
+        commitEditors()
+        keepPaneState(ofPane: 1 - pane)
+        if pane == activePane { selection = otherSelection }
+        activePane = 0
+        isSplit = false
+    }
+
+    /// Unsplitting: the pane that stays becomes pane 0, bringing its Read mode and Outline view.
+    private func keepPaneState(ofPane pane: Int) {
+        let reading: Set<Int> = readingPanes.contains(pane) ? [0] : []
+        if readingPanes != reading { readingPanes = reading }
+        let outline: Set<Int> = outlinePanes.contains(pane) ? [0] : []
+        if outlinePanes != outline { outlinePanes = outline }
     }
 
     /// Makes a pane the active one; the sidebar then shows (and changes) its files.
@@ -123,7 +184,7 @@ final class ProjectModel {
         if let location = result.location {
             jump(to: location, bookmarkID: result.bookmarkID)
         } else {
-            readMode = false
+            exitReadModeInActivePane()
             reveal(result.fileID)
             selection = [result.fileID]
             focusRequest += 1
@@ -284,7 +345,9 @@ final class ProjectModel {
 
     /// Shows the file containing `location` (selecting it if needed) and moves the cursor there.
     func jump(to location: TextLocation, bookmarkID: String? = nil) {
-        readMode = false
+        exitReadModeInActivePane()
+        // Draft text isn't shown in Outline view.
+        if !location.inOutline { setOutlineView(false) }
         if !selection.contains(location.fileID) {
             reveal(location.fileID)
             selection = [location.fileID]
@@ -326,6 +389,19 @@ final class ProjectModel {
         )
         setIconDefinitions(icons + [icon])
         return icon
+    }
+
+    /// The story-beat icons this project doesn't have (matched by id).
+    var missingDefaultIcons: [IconDefinition] {
+        let ids = Set(project.manifest.icons.map(\.id))
+        return IconDefinition.defaults.filter { !ids.contains($0.id) }
+    }
+
+    /// Puts back any missing story-beat icons, after the ones already there.
+    func addDefaultIcons() {
+        let missing = missingDefaultIcons
+        guard !missing.isEmpty else { return }
+        setIconDefinitions(project.manifest.icons + missing)
     }
 
     func deleteIcon(_ id: String) {
@@ -374,7 +450,7 @@ final class ProjectModel {
             NSSound.beep()
             return
         }
-        readMode = false
+        exitReadModeInActivePane()
         reveal(id)
         if selection != [id] { selection = [id] }
         focusRequest += 1

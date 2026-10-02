@@ -17,11 +17,11 @@ public struct IconDefinition: Hashable, Sendable, Codable, Identifiable {
     }
 
     public static let defaults: [IconDefinition] = [
-        IconDefinition(id: "inciting-incident", name: "Inciting Incident", symbol: "bolt.fill", color: "#E5484D"),
-        IconDefinition(id: "turning-point", name: "Turning Point", symbol: "arrow.triangle.turn.up.right.diamond.fill", color: "#F5A524"),
-        IconDefinition(id: "crisis", name: "Crisis", symbol: "exclamationmark.triangle.fill", color: "#D6409F"),
-        IconDefinition(id: "climax", name: "Climax", symbol: "flame.fill", color: "#8E4EC6"),
-        IconDefinition(id: "resolution", name: "Resolution", symbol: "checkmark.seal.fill", color: "#30A46C"),
+        IconDefinition(id: "inciting-incident", name: "Inciting Incident", symbol: "bolt.fill", color: "#F5A524"),
+        IconDefinition(id: "turning-point", name: "Turning Point", symbol: "tornado", color: "#8E4EC6"),
+        IconDefinition(id: "crisis", name: "Crisis", symbol: "signpost.right.and.left.fill", color: "#0090FF"),
+        IconDefinition(id: "climax", name: "Climax", symbol: "flame.fill", color: "#E5484D"),
+        IconDefinition(id: "resolution", name: "Resolution", symbol: "sunrise.fill", color: "#D6409F"),
     ]
 }
 

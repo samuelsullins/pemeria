@@ -11,6 +11,7 @@ enum PreferenceKey {
     static let width = "editorWidth"
     static let justified = "editorJustified"
     static let theme = "appTheme"
+    static let spellCheck = "editorSpellCheck"
 }
 
 /// The editor's typography, read from Preferences.
@@ -46,6 +47,7 @@ struct EditorStyle: Equatable {
             PreferenceKey.width: 680.0,
             PreferenceKey.justified: true,
             PreferenceKey.theme: "system",
+            PreferenceKey.spellCheck: true,
         ])
     }
 
@@ -115,6 +117,7 @@ struct PreferencesView: View {
     @AppStorage(PreferenceKey.width) private var width = 680.0
     @AppStorage(PreferenceKey.justified) private var justified = true
     @AppStorage(PreferenceKey.theme) private var theme = "system"
+    @AppStorage(PreferenceKey.spellCheck) private var spellCheck = true
 
     var body: some View {
         Form {
@@ -148,6 +151,7 @@ struct PreferencesView: View {
                         .monospacedDigit()
                         .frame(width: 56, alignment: .trailing)
                 }
+                Toggle("Underline misspelled words", isOn: $spellCheck)
             }
             Section("Appearance") {
                 Picker("Theme", selection: $theme) {

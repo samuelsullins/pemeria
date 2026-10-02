@@ -40,11 +40,12 @@ public struct SearchResult: Hashable, Sendable, Identifiable {
 
 extension Project {
     /// Searches everything: file names, drafts, notes, outlines, comments and bookmarks.
-    /// Matching ignores case and accents. Each kind returns at most `limit` results, in book order.
+    /// Matching ignores case, accents, full-width forms and curly vs straight quotes.
+    /// Each kind returns at most `limit` results, in book order.
     public func search(_ query: String, limit: Int = 50) -> [SearchResult] {
-        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let query = Self.foldingQuotes(query.trimmingCharacters(in: .whitespacesAndNewlines))
         guard !query.isEmpty else { return [] }
-        let options: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
+        let options: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive, .widthInsensitive]
         var results: [SearchResult.Kind: [SearchResult]] = [:]
 
         func add(_ result: SearchResult) {
@@ -53,7 +54,7 @@ extension Project {
 
         for id in tree.bookOrder {
             guard let file = files[id] else { continue }
-            let title = file.title as NSString
+            let title = Self.foldingQuotes(file.title) as NSString
             let titleMatch = title.range(of: query, options: options)
             if titleMatch.location != NSNotFound {
                 add(SearchResult(kind: .fileName, fileID: id, fileTitle: file.title, location: nil,
@@ -67,7 +68,7 @@ extension Project {
                 for block in Block.canonical(blocks) {
                     switch block {
                     case .bookmark(let bookmark):
-                        let match = (bookmark.name as NSString).range(of: query, options: options)
+                        let match = (Self.foldingQuotes(bookmark.name) as NSString).range(of: query, options: options)
                         guard match.location != NSNotFound else { continue }
                         let location = TextLocation(fileID: id, inOutline: inOutline, paragraph: paragraphIndex,
                                                     range: NSRange(location: bookmark.offset, length: 0))
@@ -76,10 +77,11 @@ extension Project {
                     case .paragraph(let paragraph):
                         defer { paragraphIndex += 1 }
                         let text = paragraph.text as NSString
+                        let folded = Self.foldingQuotes(paragraph.text) as NSString
                         let comments = Comments.ranges(in: paragraph.text)
                         var searchFrom = 0
                         while searchFrom < text.length {
-                            let match = text.range(of: query, options: options,
+                            let match = folded.range(of: query, options: options,
                                                    range: NSRange(location: searchFrom, length: text.length - searchFrom))
                             guard match.location != NSNotFound else { break }
                             searchFrom = NSMaxRange(match)
@@ -95,6 +97,19 @@ extension Project {
             }
         }
         return SearchResult.Kind.allCases.flatMap { results[$0] ?? [] }
+    }
+
+    /// Curly quotes and apostrophes as straight ones, so "don't" finds "don’t". Each swap is
+    /// one UTF-16 unit for one, so ranges found in the result hold in the original.
+    static func foldingQuotes(_ text: String) -> String {
+        guard text.contains(where: { "‘’‚‛“”„‟".contains($0) }) else { return text }
+        return String(text.map { character -> Character in
+            switch character {
+            case "‘", "’", "‚", "‛": "'"
+            case "“", "”", "„", "‟": "\""
+            default: character
+            }
+        })
     }
 
     /// About `before` characters of context before the match and enough after to fill

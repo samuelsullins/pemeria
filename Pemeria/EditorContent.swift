@@ -52,6 +52,8 @@ enum EditorMode: Equatable {
     case bodies
     /// Outlines only, each labeled with its file (the pinned outline pane).
     case outlines
+    /// Outline view: like `.outlines`, but as the main editor, at full brightness.
+    case outlineView
     /// Read mode: draft and note text with comments and bookmarks hidden. Not editable.
     case reading
 }
@@ -70,7 +72,7 @@ struct ShownFile: Equatable {
 ///
 /// Markers and segments are joined by single newlines; each marker is one invisible character
 /// on its own line. In `.full` and `.bodies`, headers appear only when more than one file is
-/// shown; in `.outlines` every outline gets one. Notes have no outline.
+/// shown; in `.outlines` and `.outlineView` every outline gets one. Notes have no outline.
 struct EditorContent {
     enum Piece {
         case marker
@@ -104,7 +106,7 @@ struct EditorContent {
                     return Comments.stripped(paragraph).map(Block.paragraph)
                 }
                 appendSegment(file.id, .body, indented: file.kind == .draft, TextBridge.attributedString(readable))
-            case .outlines:
+            case .outlines, .outlineView:
                 guard file.kind == .draft else { continue }
                 appendMarker(EditorMarker(kind: .fileHeader, fileID: file.id, title: file.title))
                 appendSegment(file.id, .outline, indented: false, TextBridge.attributedString(file.outline ?? []))

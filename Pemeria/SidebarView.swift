@@ -469,6 +469,15 @@ final class SidebarCell: NSTableCellView {
         didSet { updateIconTint() }
     }
 
+    /// Lets the Working File arrow and the icons take their own clicks; otherwise the outline
+    /// view keeps the click for selecting the row (an image view never got it).
+    override func validateProposedFirstResponder(_ responder: NSResponder, for event: NSEvent?) -> Bool {
+        if event?.type == .leftMouseDown, responder === badges || (responder === icon && icon.onClick != nil) {
+            return true
+        }
+        return super.validateProposedFirstResponder(responder, for: event)
+    }
+
     private var isWorkingFile = false
 
     func configure(with file: PemeriaFile, icons: [IconDefinition], isWorkingFile: Bool) {
@@ -487,7 +496,7 @@ final class SidebarCell: NSTableCellView {
         // Only the arrow is clickable; a note icon just selects the row like the rest of it.
         icon.onClick = isWorkingFile ? { [weak self] in
             guard let self else { return }
-            self.onIconsClick?(self.badges.icons.isEmpty ? self.icon : self.badges)
+            self.onIconsClick?(self.badges)
         } : nil
         updateIconTint()
     }
@@ -501,14 +510,24 @@ final class SidebarCell: NSTableCellView {
 
 /// Up to three file icons, overlapping and fanned like a hand of cards (SPEC.md §4).
 /// Each is its symbol in its colour; on a selected row each gets a thin white halo.
+/// With no icons it shows a faint tag, as the header does, so there's something to click.
 final class IconFanView: NSView {
     var icons: [IconDefinition] = [] {
         didSet {
             guard icons != oldValue else { return }
             invalidateIntrinsicContentSize()
             needsDisplay = true
-            toolTip = icons.isEmpty ? nil : icons.map(\.name).joined(separator: ", ")
+            toolTip = icons.isEmpty ? "Add Icons" : icons.map(\.name).joined(separator: ", ")
         }
+    }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        toolTip = "Add Icons"
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not used")
     }
 
     var isOnSelection = false {
@@ -518,14 +537,14 @@ final class IconFanView: NSView {
     var onClick: (() -> Void)?
 
     override func mouseDown(with event: NSEvent) {
-        if let onClick, !icons.isEmpty { onClick() } else { super.mouseDown(with: event) }
+        if let onClick { onClick() } else { super.mouseDown(with: event) }
     }
 
     static let size: CGFloat = 14
     static let step: CGFloat = 10
 
     override var intrinsicContentSize: NSSize {
-        guard !icons.isEmpty else { return NSSize(width: 0, height: Self.size) }
+        guard !icons.isEmpty else { return NSSize(width: Self.size + 4, height: Self.size + 4) }
         return NSSize(width: Self.size + CGFloat(icons.count - 1) * Self.step + 4, height: Self.size + 4)
     }
 
@@ -533,6 +552,15 @@ final class IconFanView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
+        if icons.isEmpty {
+            let color: NSColor = isOnSelection ? .white.withAlphaComponent(0.55) : .tertiaryLabelColor
+            guard let tag = NSImage(systemSymbolName: "tag", accessibilityDescription: "Add Icons")?
+                .withSymbolConfiguration(.init(pointSize: 10, weight: .regular).applying(.init(paletteColors: [color])))
+            else { return }
+            tag.draw(in: CGRect(x: bounds.midX - tag.size.width / 2, y: bounds.midY - tag.size.height / 2,
+                                width: tag.size.width, height: tag.size.height))
+            return
+        }
         let angles: [CGFloat] = switch icons.count {
         case 1: [0]
         case 2: [-7, 7]

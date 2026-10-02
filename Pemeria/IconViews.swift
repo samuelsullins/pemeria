@@ -19,7 +19,7 @@ enum IconSymbols {
         "lock.fill", "lock.open.fill", "moon.fill", "sun.max.fill", "sunrise.fill", "sunset.fill",
         "cloud.rain.fill", "cloud.bolt.fill", "snowflake", "wind", "tornado", "water.waves",
         "leaf.fill", "tree.fill", "mountain.2.fill", "globe.americas.fill", "drop.fill", "hourglass",
-        "clock.fill", "map.fill", "mappin", "signpost.right.fill", "house.fill", "building.columns.fill",
+        "clock.fill", "map.fill", "mappin", "signpost.right.fill", "signpost.right.and.left.fill", "house.fill", "building.columns.fill",
         "tent.fill", "door.left.hand.open", "bed.double.fill", "person.fill", "person.2.fill", "figure.walk",
         "figure.run", "figure.fall", "figure.2.arms.open", "hand.raised.fill", "brain.head.profile.fill", "eyeglasses",
         "bubble.left.fill", "quote.bubble.fill", "exclamationmark.bubble.fill", "envelope.fill", "phone.fill", "bell.fill",
@@ -132,8 +132,17 @@ struct IconsPane: View {
                     }
                 }
                 .padding(.horizontal, 10)
-                .padding(.bottom, 8)
+                .padding(.bottom, model.missingDefaultIcons.isEmpty ? 8 : 4)
                 .transition(.opacity)
+                if !model.missingDefaultIcons.isEmpty {
+                    Button("Add Story Beats") { model.addDefaultIcons() }
+                        .buttonStyle(.link)
+                        .font(.caption)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 8)
+                        .help(model.missingDefaultIcons.map(\.name).joined(separator: ", "))
+                }
             }
         }
         .onChange(of: model.iconEditorRequest) {
@@ -192,19 +201,26 @@ struct IconDetailEditor: View {
                         .onChange(of: nameFocused) { _, focused in if !focused { saveName() } }
                 }
 
-                HStack(spacing: 7) {
-                    ForEach(IconPalette.colors, id: \.self) { hex in
-                        let selected = hex.caseInsensitiveCompare(icon.color) == .orderedSame
-                        Button {
-                            change { $0.color = hex }
-                        } label: {
-                            Circle()
-                                .fill(Color(nsColor: NSColor(hex: hex) ?? .gray))
-                                .frame(width: 16, height: 16)
-                                .overlay(Circle().strokeBorder(Color.primary.opacity(selected ? 0.8 : 0), lineWidth: 2).padding(-3))
+                // Two rows of swatches, then the custom well: one row of twelve doesn't fit.
+                HStack(alignment: .center, spacing: 12) {
+                    LazyVGrid(columns: Array(repeating: GridItem(.fixed(22), spacing: 6), count: IconPalette.colors.count / 2), spacing: 6) {
+                        ForEach(IconPalette.colors, id: \.self) { hex in
+                            let selected = hex.caseInsensitiveCompare(icon.color) == .orderedSame
+                            Button {
+                                change { $0.color = hex }
+                            } label: {
+                                Circle()
+                                    .fill(Color(nsColor: NSColor(hex: hex) ?? .gray))
+                                    .frame(width: 16, height: 16)
+                                    .overlay(Circle().strokeBorder(Color.primary.opacity(selected ? 0.8 : 0), lineWidth: 2).padding(-3))
+                                    .frame(width: 22, height: 22)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
+                    .fixedSize()
+                    Spacer(minLength: 0)
                     ColorPicker("Custom Colour", selection: Binding(
                         get: { icon.swiftUIColor },
                         set: { color in change { $0.color = NSColor(color).hexString } }
@@ -263,7 +279,7 @@ struct IconDetailEditor: View {
                 .buttonStyle(.borderless)
             }
             .padding(14)
-            .frame(width: 290)
+            .frame(width: 300)
             .onAppear { name = icon.name }
             .onDisappear(perform: saveName)
             .confirmationDialog("Delete “\(icon.name)”?", isPresented: $confirmingDelete) {

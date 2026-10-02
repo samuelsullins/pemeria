@@ -100,10 +100,15 @@ struct PemeriaCommands: Commands {
                 app.rightPanelVisible.toggle()
             }
             .keyboardShortcut("0", modifiers: [.command, .option])
-            Button(app.project?.readMode == true ? "Exit Read Mode" : "Read Mode") {
-                if let project = app.project { project.readMode.toggle() }
+            Button(app.project.map { $0.isReading(pane: $0.activePane) } == true ? "Exit Read Mode" : "Read Mode") {
+                app.project?.toggleReadMode()
             }
             .keyboardShortcut("r", modifiers: [.command, .shift])
+            .disabled(app.project == nil)
+            Button(app.project.map { $0.isOutlineView(pane: $0.activePane) } == true ? "Draft View" : "Outline View") {
+                if let project = app.project { project.setOutlineView(!project.isOutlineView(pane: project.activePane)) }
+            }
+            .keyboardShortcut("o", modifiers: [.command, .shift])
             .disabled(app.project == nil)
             Button(app.project?.isSplit == true ? "Close Split View" : "Split View") {
                 app.project?.toggleSplit()

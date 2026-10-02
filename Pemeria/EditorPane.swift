@@ -8,9 +8,9 @@ struct EditorArea: View {
 
     var body: some View {
         if model.isSplit {
-            HStack(spacing: 0) {
+            PaneSplit {
                 EditorPane(model: model, pane: 0)
-                Divider()
+            } trailing: {
                 EditorPane(model: model, pane: 1)
             }
         } else {
@@ -34,20 +34,36 @@ struct EditorPane: View {
                 ContentUnavailableView("No File Selected", systemImage: "doc.text", description: Text("Select a file in the sidebar."))
                     .contentShape(Rectangle())
                     .onTapGesture { model.activate(pane: pane) }
+                    .overlay(alignment: .topTrailing) {
+                        SplitButton(model: model, pane: pane)
+                            .padding(.trailing, 12)
+                            .padding(.top, 9)
+                    }
             } else {
                 VStack(spacing: 0) {
-                    EditorHeader(model: model, files: files)
+                    EditorHeader(model: model, pane: pane, files: files)
                         .contentShape(Rectangle())
                         .simultaneousGesture(TapGesture().onEnded { model.activate(pane: pane) })
                     Divider()
-                    if model.readMode {
+                    if model.isReading(pane: pane) {
                         EditorView(model: model, mode: .reading, pane: pane)
-                    } else if model.outlinePinned {
+                    } else if model.isOutlineView(pane: pane) {
+                        if files.contains(where: { $0.kind == .draft }) {
+                            EditorView(model: model, mode: .outlineView, pane: pane)
+                        } else {
+                            Text("Notes don’t have outlines.")
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                    } else if model.outlinePinned, files.contains(where: { $0.kind == .draft }) {
                         OutlineSplit {
                             EditorView(model: model, mode: .bodies, pane: pane)
                         } bottom: {
-                            PinnedOutlinePane(model: model, pane: pane, hasOutlines: files.contains { $0.kind == .draft })
+                            PinnedOutlinePane(model: model, pane: pane)
                         }
+                    } else if model.outlinePinned {
+                        // Notes have no outline, so there's no pane to pin.
+                        EditorView(model: model, mode: .bodies, pane: pane)
                     } else {
                         EditorView(model: model, mode: .full, pane: pane)
                     }
@@ -64,17 +80,19 @@ struct EditorPane: View {
     }
 }
 
-/// The file name above the editor, with Read Mode and one-click copy in its corner.
+/// The file name above the editor: Read mode and one-click copy on the left; Draft | Outline and
+/// split view on the right.
 /// With one file selected the name is editable in place, and its icons sit beside it (SPEC.md §12).
 private struct EditorHeader: View {
     let model: ProjectModel
+    let pane: Int
     let files: [PemeriaFile]
 
     var body: some View {
         ZStack {
             if files.count == 1, let file = files.first {
                 HeaderTitleWithIcons(model: model, fileID: file.id) {
-                    HeaderTitleField(model: model, file: file)
+                    RenameField(name: file.title) { model.rename(file.id, to: $0) }
                         .id(file.id)
                 }
             } else {
@@ -85,22 +103,32 @@ private struct EditorHeader: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, 72)
+        .padding(.leading, 72)
+        .padding(.trailing, 150)
         .padding(.vertical, 8)
-        .overlay(alignment: .trailing) {
+        .overlay(alignment: .leading) {
+            let reading = model.isReading(pane: pane)
             HStack(spacing: 10) {
                 Button {
-                    model.readMode.toggle()
+                    model.toggleReadMode(pane: pane)
                 } label: {
-                    Image(systemName: model.readMode ? "eye.fill" : "eye")
-                        .foregroundStyle(model.readMode ? Theme.accentColor : Color.secondary)
+                    // On: full strength rather than coral, so the header stays quiet.
+                    Image(systemName: "eye.fill")
+                        .foregroundStyle(reading ? Color.primary : Color.secondary)
                         .frame(width: 18)
                 }
                 .buttonStyle(.borderless)
-                .help(model.readMode ? "Exit Read Mode (⇧⌘R)" : "Read Mode (⇧⌘R): hide comments, outlines and bookmarks")
+                .help(reading ? "Exit Read Mode (⇧⌘R)" : "Read Mode (⇧⌘R): hide comments, outlines and bookmarks")
                 CopyButton(help: files.count == 1 ? "Copy Draft Text" : "Copy Draft Text of All \(files.count) Files") {
                     model.copyDraftText(of: files.map(\.id))
                 }
+            }
+            .padding(.leading, 12)
+        }
+        .overlay(alignment: .trailing) {
+            HStack(spacing: 10) {
+                DraftOutlineToggle(model: model, pane: pane)
+                SplitButton(model: model, pane: pane)
             }
             .padding(.trailing, 12)
         }
@@ -108,9 +136,10 @@ private struct EditorHeader: View {
 }
 
 /// Click and type to rename. Return or clicking away saves; Esc puts the old name back.
-private struct HeaderTitleField: View {
-    let model: ProjectModel
-    let file: PemeriaFile
+private struct RenameField: View {
+    let name: String
+    var alignment: TextAlignment = .center
+    let onRename: (String) -> Void
     @State private var text = ""
     @FocusState private var focused: Bool
 
@@ -126,12 +155,12 @@ private struct HeaderTitleField: View {
                 TextField("Name", text: $text)
                     .textFieldStyle(.plain)
                     .font(.headline)
-                    .multilineTextAlignment(.center)
+                    .multilineTextAlignment(alignment)
                     .focused($focused)
             }
-            .onAppear { text = file.title }
-            .onChange(of: file.title) { _, title in
-                if !focused { text = title }
+            .onAppear { text = name }
+            .onChange(of: name) { _, name in
+                if !focused { text = name }
             }
             .onChange(of: focused) { _, isFocused in
                 if !isFocused { commit() }
@@ -140,7 +169,7 @@ private struct HeaderTitleField: View {
             // Clicking another file mid-rename removes this field before it loses focus.
             .onDisappear { commit() }
             .onExitCommand {
-                text = file.title
+                text = name
                 focused = false
             }
             .help("Click to rename")
@@ -148,11 +177,60 @@ private struct HeaderTitleField: View {
 
     private func commit() {
         let trimmed = text.trimmingCharacters(in: .whitespaces)
-        if trimmed.isEmpty || trimmed == file.title {
-            text = file.title
+        if trimmed.isEmpty || trimmed == name {
+            text = name
         } else {
-            model.rename(file.id, to: trimmed)
+            onRename(trimmed)
         }
+    }
+}
+
+/// Draft | Outline, at the right of the header: the highlighted one is what the pane shows.
+private struct DraftOutlineToggle: View {
+    let model: ProjectModel
+    let pane: Int
+
+    var body: some View {
+        let outline = model.isOutlineView(pane: pane)
+        HStack(spacing: 0) {
+            segment("Draft", selected: !outline) { model.setOutlineView(false, pane: pane) }
+            segment("Outline", selected: outline) { model.setOutlineView(true, pane: pane) }
+        }
+        .padding(2)
+        .background(Capsule().fill(Color.primary.opacity(0.07)))
+        .fixedSize()
+        .help("Draft or Outline view (⇧⌘O)")
+    }
+
+    private func segment(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(selected ? Color.white : Color.secondary)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 3)
+                .background(Capsule().fill(selected ? Theme.accentColor : Color.clear))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// Splits the editor in two; while split, an × that closes this pane.
+private struct SplitButton: View {
+    let model: ProjectModel
+    let pane: Int
+
+    var body: some View {
+        Button {
+            if model.isSplit { model.closePane(pane) } else { model.toggleSplit() }
+        } label: {
+            Image(systemName: model.isSplit ? "xmark" : "rectangle.split.2x1.fill")
+                .foregroundStyle(Color.secondary)
+                .frame(width: 18)
+        }
+        .buttonStyle(.borderless)
+        .help(model.isSplit ? "Close This Pane" : "Split View (⌘\\)")
     }
 }
 
@@ -171,7 +249,9 @@ struct CopyButton: View {
                 copied = false
             }
         } label: {
-            Image(systemName: copied ? "checkmark" : "doc.on.doc")
+            // Color.secondary, not .secondary: the latter is a shade of the button's coral tint.
+            Image(systemName: copied ? "checkmark" : "doc.on.doc.fill")
+                .foregroundStyle(Color.secondary)
                 .contentTransition(.symbolEffect(.replace))
                 .frame(width: 18)
         }
@@ -192,6 +272,8 @@ private struct WordCountBar: View {
         let onlyNotes = !files.contains { model.project.files[$0]?.kind == .draft }
         let label = if let selected = model.selectedTextWords, !model.isSplit || model.selectedTextPane == pane {
             "\(Self.words(selected)) selected"
+        } else if model.isOutlineView(pane: pane), !onlyNotes {
+            "\(Self.words(counts.currentOutline)) in outline"
         } else {
             Self.words(counts.currentDraft)
         }
@@ -242,6 +324,78 @@ private struct WordCountBar: View {
     }
 }
 
+/// The grab strip over a split's divider. AppKit rather than a SwiftUI gesture: the text views
+/// beside it are AppKit views, and they win clicks over any SwiftUI gesture under them, which
+/// left only the header strip draggable.
+private struct SplitHandle: NSViewRepresentable {
+    static let thickness: CGFloat = 9
+
+    /// `.horizontal`: a divider between left and right panes, dragged sideways.
+    let axis: Axis
+    let onBegin: () -> Void
+    /// Distance dragged since the mouse went down: rightwards, or downwards.
+    let onDrag: (CGFloat) -> Void
+    let onEnd: () -> Void
+    var onDoubleClick: (() -> Void)?
+
+    func makeNSView(context: Context) -> HandleView {
+        HandleView()
+    }
+
+    func updateNSView(_ view: HandleView, context: Context) {
+        view.handle = self
+    }
+
+    final class HandleView: NSView {
+        var handle: SplitHandle? {
+            didSet { if handle?.axis != oldValue?.axis { window?.invalidateCursorRects(for: self) } }
+        }
+        private var start: NSPoint?
+
+        private var cursor: NSCursor { handle?.axis == .vertical ? .resizeUpDown : .resizeLeftRight }
+
+        override var mouseDownCanMoveWindow: Bool { false }
+
+        override func resetCursorRects() {
+            addCursorRect(bounds, cursor: cursor)
+        }
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            trackingAreas.forEach(removeTrackingArea)
+            addTrackingArea(NSTrackingArea(rect: .zero, options: [.cursorUpdate, .activeInKeyWindow, .inVisibleRect], owner: self))
+        }
+
+        override func cursorUpdate(with event: NSEvent) {
+            cursor.set()
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            if event.clickCount == 2, let onDoubleClick = handle?.onDoubleClick {
+                start = nil
+                onDoubleClick()
+                return
+            }
+            start = event.locationInWindow
+            handle?.onBegin()
+        }
+
+        override func mouseDragged(with event: NSEvent) {
+            guard let start, let handle else { return }
+            cursor.set()
+            let point = event.locationInWindow
+            // Window coordinates run upwards.
+            handle.onDrag(handle.axis == .horizontal ? point.x - start.x : start.y - point.y)
+        }
+
+        override func mouseUp(with event: NSEvent) {
+            guard start != nil else { return }
+            start = nil
+            handle?.onEnd()
+        }
+    }
+}
+
 /// Editor above, outline pane below, with a draggable divider. (SwiftUI's VSplitView crashed
 /// here: its split view and the text views fought over layout.)
 private struct OutlineSplit<Top: View, Bottom: View>: View {
@@ -261,26 +415,62 @@ private struct OutlineSplit<Top: View, Bottom: View>: View {
                 top
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 Divider()
-                    .overlay {
-                        Color.clear
-                            .frame(height: 8)
-                            .contentShape(Rectangle())
-                            .onHover { inside in
-                                if inside { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
-                            }
-                            .gesture(
-                                DragGesture(minimumDistance: 1)
-                                    .onChanged { value in
-                                        let start = dragStartHeight ?? height
-                                        dragStartHeight = start
-                                        paneHeight = min(max(start - value.translation.height, minPane), maxPane)
-                                    }
-                                    .onEnded { _ in dragStartHeight = nil }
-                            )
-                    }
                 bottom
                     .frame(maxWidth: .infinity)
                     .frame(height: height)
+            }
+            .overlay(alignment: .topLeading) {
+                SplitHandle(axis: .vertical) {
+                    dragStartHeight = height
+                } onDrag: { distance in
+                    let start = dragStartHeight ?? height
+                    paneHeight = min(max(start - distance, minPane), maxPane)
+                } onEnd: {
+                    dragStartHeight = nil
+                }
+                .frame(width: geometry.size.width, height: SplitHandle.thickness)
+                .offset(y: geometry.size.height - height - 0.5 - SplitHandle.thickness / 2)
+            }
+        }
+    }
+}
+
+/// Two editor panes side by side, with a draggable divider. Built by hand for the same
+/// reason as `OutlineSplit`. The split is kept as a fraction, so it holds as the window resizes.
+private struct PaneSplit<Leading: View, Trailing: View>: View {
+    @ViewBuilder let leading: Leading
+    @ViewBuilder let trailing: Trailing
+    @AppStorage("editorSplitFraction") private var fraction = 0.5
+    @State private var dragStartWidth: Double?
+
+    private let minPane = 280.0
+
+    var body: some View {
+        GeometryReader { geometry in
+            let total = geometry.size.width
+            let maxLeading = max(minPane, total - minPane)
+            let width = min(max(total * fraction, minPane), maxLeading)
+            HStack(spacing: 0) {
+                leading
+                    .frame(width: width)
+                Divider()
+                trailing
+                    .frame(maxWidth: .infinity)
+            }
+            .overlay(alignment: .topLeading) {
+                SplitHandle(axis: .horizontal) {
+                    dragStartWidth = width
+                } onDrag: { distance in
+                    let start = dragStartWidth ?? width
+                    let newWidth = min(max(start + distance, minPane), maxLeading)
+                    if total > 0 { fraction = newWidth / total }
+                } onEnd: {
+                    dragStartWidth = nil
+                } onDoubleClick: {
+                    fraction = 0.5
+                }
+                .frame(width: SplitHandle.thickness, height: geometry.size.height)
+                .offset(x: width + 0.5 - SplitHandle.thickness / 2)
             }
         }
     }
@@ -290,7 +480,6 @@ private struct OutlineSplit<Top: View, Bottom: View>: View {
 private struct PinnedOutlinePane: View {
     let model: ProjectModel
     let pane: Int
-    let hasOutlines: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -311,13 +500,7 @@ private struct PinnedOutlinePane: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 6)
             Divider()
-            if hasOutlines {
-                EditorView(model: model, mode: .outlines, pane: pane)
-            } else {
-                Text("Notes don’t have outlines.")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
+            EditorView(model: model, mode: .outlines, pane: pane)
         }
     }
 }

@@ -39,6 +39,8 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
 
     /// The pinned outline pane doesn't take part in remembering your place; the main editor does.
     private var remembersPosition: Bool { mode == .full || mode == .bodies }
+    /// Outlines are drawn quieter than the draft, except in Outline view where they're the point.
+    private var dimsOutlines: Bool { mode != .outlineView }
 
     init(mode: EditorMode, pane: Int) {
         self.mode = mode
@@ -57,7 +59,7 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         textView.isAutomaticQuoteSubstitutionEnabled = true
         textView.isAutomaticDashSubstitutionEnabled = true
         textView.isAutomaticSpellingCorrectionEnabled = false
-        textView.isContinuousSpellCheckingEnabled = true
+        textView.isContinuousSpellCheckingEnabled = UserDefaults.standard.bool(forKey: PreferenceKey.spellCheck)
         textView.isGrammarCheckingEnabled = false
         textView.isAutomaticLinkDetectionEnabled = false
         textView.isAutomaticDataDetectionEnabled = false
@@ -412,7 +414,7 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         let location = textView.selectedRange().location
         let segment = segments.first { $0.contains(NSRange(location: location, length: 0)) }
         attributes[.font] = font(for: raw)
-        attributes[.foregroundColor] = segment?.role == .outline ? NSColor.secondaryLabelColor : NSColor.textColor
+        attributes[.foregroundColor] = segment?.role == .outline && dimsOutlines ? NSColor.secondaryLabelColor : NSColor.textColor
         attributes[.paragraphStyle] = paragraphStyle(indented: segment?.isIndented ?? false)
         textView.typingAttributes = attributes
     }
@@ -765,13 +767,13 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         let indented = (segment?.isIndented ?? false) && !isFirst
         display.addAttribute(.paragraphStyle, value: paragraphStyle(indented: indented), range: whole)
         display.addAttribute(.foregroundColor,
-                             value: segment?.role == .outline ? NSColor.secondaryLabelColor : NSColor.textColor,
+                             value: segment?.role == .outline && dimsOutlines ? NSColor.secondaryLabelColor : NSColor.textColor,
                              range: whole)
         display.addAttribute(.font, value: font(for: 0), range: whole)
         display.enumerateAttribute(.pemeriaStyle, in: whole) { value, subrange, _ in
             if let raw = (value as? NSNumber)?.uint8Value { display.addAttribute(.font, value: font(for: raw), range: subrange) }
         }
-        let commentColor = segment?.role == .outline ? NSColor.tertiaryLabelColor : NSColor.secondaryLabelColor
+        let commentColor = segment?.role == .outline && dimsOutlines ? NSColor.tertiaryLabelColor : NSColor.secondaryLabelColor
         for comment in Comments.ranges(in: display.string) {
             display.addAttribute(.foregroundColor, value: commentColor, range: comment)
         }
@@ -787,7 +789,7 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
                 case .outlineDivider: .outlineDivider
                 }
                 let fragment = MarkerFragment(textElement: textElement, range: textElement.elementRange, kind: kind)
-                fragment.hasCopyButton = mode != .outlines
+                fragment.hasCopyButton = mode != .outlines && mode != .outlineView
                 return fragment
             }
             var bookmarks: [(index: Int, bookmark: Bookmark)] = []
@@ -803,6 +805,8 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
     }
 
     private func preferencesChanged() {
+        let spellCheck = UserDefaults.standard.bool(forKey: PreferenceKey.spellCheck)
+        if textView.isContinuousSpellCheckingEnabled != spellCheck { textView.isContinuousSpellCheckingEnabled = spellCheck }
         let latest = EditorStyle.current()
         guard latest != style else { return }
         style = latest

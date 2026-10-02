@@ -37,7 +37,7 @@ struct SearchTests {
             .paragraph(Paragraph(runs: [Run("“That’s "), Run("cra", .italic), Run("zy,” she said.")])),
             .paragraph(Paragraph("Utterly crazy. // crazy note.")),
         ], outline: nil)
-        for query in ["crazy", "CRAZY", "zy", "crazy,", "That’s crazy"] {
+        for query in ["crazy", "CRAZY", "CrAzY", "zy", "crazy,", "That’s crazy", "THAT'S CRAZY", "\"that's", "ｃｒａｚｙ"] {
             #expect(!project.search(query).isEmpty, "\(query)")
         }
         #expect(project.search("crazy").map(\.kind) == [.draft, .draft, .comment])

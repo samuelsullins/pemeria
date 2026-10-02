@@ -86,11 +86,11 @@ Mara reaches the lighthouse. Finds the logbook. Storm hits.
   "name": "My Novel",
   "workingFile": "k3f9a2",
   "icons": [
-    { "id": "inciting-incident", "name": "Inciting Incident", "symbol": "bolt.fill",          "color": "#E5484D" },
-    { "id": "turning-point",     "name": "Turning Point",     "symbol": "arrow.triangle.turn.up.right.diamond.fill", "color": "#F5A524" },
-    { "id": "crisis",            "name": "Crisis",            "symbol": "exclamationmark.triangle.fill", "color": "#D6409F" },
-    { "id": "climax",            "name": "Climax",            "symbol": "flame.fill",         "color": "#8E4EC6" },
-    { "id": "resolution",        "name": "Resolution",        "symbol": "checkmark.seal.fill", "color": "#30A46C" }
+    { "id": "inciting-incident", "name": "Inciting Incident", "symbol": "bolt.fill",                    "color": "#F5A524" },
+    { "id": "turning-point",     "name": "Turning Point",     "symbol": "tornado",                      "color": "#8E4EC6" },
+    { "id": "crisis",            "name": "Crisis",            "symbol": "signpost.right.and.left.fill", "color": "#0090FF" },
+    { "id": "climax",            "name": "Climax",            "symbol": "flame.fill",                   "color": "#E5484D" },
+    { "id": "resolution",        "name": "Resolution",        "symbol": "sunrise.fill",                 "color": "#D6409F" }
   ]
 }
 ```
@@ -126,8 +126,8 @@ The sidebar and the right panel each toggle on and off. One project is open at a
 - **Rename:** double-click the name, type, then Return.
 - **Notes vs. drafts:** right-click → "Make Note" / "Make Draft". Notes show a note icon and never count toward the draft word count.
 - **File icons:** up to 3 per file. They're drawn slightly overlapping, fanned like playing cards, to save room. Assign them from the right-click menu. Icons are defined per project (name, color, symbol) and you can make as many as you like. The defaults are the five story beats in §2. Each icon is drawn as its symbol in its colour (plain or `.fill` symbols, never the circled kind); on a selected row they get a thin white halo.
-  - **Adding icons:** click a file's icons (or its Working File arrow), in its sidebar row or in the editor header, for a list of every icon with checkmarks, Set/Clear Working File, and **Edit Icons…** at the bottom. The header shows a faint tag when a file has no icons, so there's something to click. Right-click → **Icons ▸** in the sidebar works on several files at once: choosing an icon adds it to all of them, or removes it if they all have it.
-  - **Editing icons:** the **Icons** pane at the bottom of the sidebar (fold it away with its chevron) shows every icon as a tile. Click a tile for a visual editor: a big preview, the name, colour swatches (plus a custom colour), a grid of symbols, move left/right, and Delete. Changes save straight away. **+** adds an icon. "Edit Icons…" anywhere opens this pane.
+  - **Adding icons:** click a file's icons (or its Working File arrow), in its sidebar row or in the editor header, for a list of every icon with checkmarks, Set/Clear Working File, and **Edit Icons…** at the bottom. A file with no icons shows a faint tag in its place, in the sidebar and the header, so there's something to click. Right-click → **Icons ▸** in the sidebar works on several files at once: choosing an icon adds it to all of them, or removes it if they all have it.
+  - **Editing icons:** the **Icons** pane at the bottom of the sidebar (fold it away with its chevron) shows every icon as a tile. Click a tile for a visual editor: a big preview, the name, colour swatches (plus a custom colour), a grid of symbols, move left/right, and Delete. Changes save straight away. **+** adds an icon. "Edit Icons…" anywhere opens this pane. When any of the five story beats are missing, the pane offers **Add Story Beats** to put them back (existing icons are kept).
   - Deleting an icon removes it from every file, after asking if any file uses it **(assumed)**.
 - **Working File:** shown with a coral **fat arrow** in front of its name (in place of the note icon, if it's a note). Only one file per project can be the Working File (see §8).
 - **New file:** ⌘N creates a draft below the current selection. ⌥⌘N creates a note **(assumed)**. The **+** button under the file list does the same: click for a draft, hold for a note.
@@ -162,7 +162,7 @@ The sidebar and the right panel each toggle on and off. One project is open at a
 - **No spacing between paragraphs** (book style). Spacing is a global setting.
 
 ### Global settings (Preferences, app-wide, never per document)
-Font, size, alignment (justified by default, or left), line height, indent size, editor width, light/dark theme.
+Font, size, alignment (justified by default, or left), line height, indent size, editor width, light/dark theme, and whether misspelled words are underlined (on by default).
 
 ---
 
@@ -174,7 +174,7 @@ Font, size, alignment (justified by default, or left), line height, indent size,
 - **Comments are drawn grayed out**, so they're quiet rather than shouting at you.
 - They're ordinary text, so you edit them normally. They travel with the text they sit next to.
 - **Never counted** in word counts. **Never included** in copy.
-- **Comments panel:** lists comments with a snippet each. Click one to jump to it. A filter under the title switches between **Selected Files** (the default) and **All Files** (the whole project). The **+** button inserts `// ` at the cursor.
+- **Comments panel:** lists comments with a snippet each. Click one to jump to it. A filter at the top of the list, below the title bar, switches between **Selected Files** (the default) and **All Files** (the whole project). The **+** button inserts `// ` at the cursor.
 
 ---
 
@@ -201,7 +201,8 @@ Font, size, alignment (justified by default, or left), line height, indent size,
 
 - Every **draft** has an outline: plain text, with the same formatting and comments as the draft. Notes have no outline.
 - **By default** the outline appears inline after its file, below a divider.
-- **Pin:** a pin icon on the divider (or View → Pin Outline, **⌥⌘O** **(assumed)**) moves outlines into the **pinned outline pane** at the bottom; its height is adjustable by dragging. When pinned, the main editor shows only the draft text. The pane shows the outlines of **all selected files**, stacked, each labeled with its file name. Unpinning puts them back inline.
+- **Pin:** a pin icon on the divider (or View → Pin Outline, **⌥⌘O** **(assumed)**) moves outlines into the **pinned outline pane** at the bottom; its height is adjustable by dragging. When pinned, the main editor shows only the draft text. The pane shows the outlines of **all selected files**, stacked, each labeled with its file name. When only notes are selected the pane is hidden, since notes have no outline. Unpinning puts them back inline.
+- **Outline view:** a **Draft | Outline** switch at the right of the editor header, beside the split button (or View → Outline View, **⇧⌘O** **(assumed)**). The highlighted side is what the pane shows. Outline view shows only the outlines of the selected drafts, at full brightness, each under a divider line with its file's name, so you can see and work on the whole outline at once. Each pane of a split has its own view, like Read mode. Choosing Read mode switches back to Draft; jumping to something in the draft text (a search result, comment or bookmark) switches back to Draft too. The word count shows the outline's words while in Outline view.
 - **Outline text never counts** toward the draft word count. It has its own count (§10).
 
 ---
@@ -233,17 +234,17 @@ Font, size, alignment (justified by default, or left), line height, indent size,
 
 ## 12. Other features
 
-- **Header:** shows the file name. Click and type to rename it when one file is selected; Return or clicking away saves, Esc puts the old name back. With one file selected, the header matches its sidebar row: the Working File arrow before the name and its icons after (click either to change them, §4). With several selected it shows "Name, Name, …", can't be edited, and shows no icons. The header's right corner holds the **Read mode** eye and the **copy** button.
-- **Split view:** two editor panes side by side, one of them active (clearly highlighted). Selecting in the sidebar changes what the **active** pane shows, and clicking into a pane makes the sidebar show that pane's selection. Toggle with **⌘\\** **(assumed)** (View → Split View).
-  - The active pane has a coral bar along its top. Each pane has its own header, word count and (when pinned) outline pane; Read mode and pinning apply to both.
+- **Header:** shows the file name. Click and type to rename it when one file is selected; Return or clicking away saves, Esc puts the old name back. With one file selected, the header matches its sidebar row: the Working File arrow before the name and its icons after (click either to change them, §4). With several selected it shows "Name, Name, …", can't be edited, and shows no icons. The header's left corner holds the **Read mode** eye and the **copy** button; its right corner holds the **Draft | Outline** switch and the **split view** button.
+- **Split view:** two editor panes side by side, one of them active (clearly highlighted). Selecting in the sidebar changes what the **active** pane shows, and clicking into a pane makes the sidebar show that pane's selection. Toggle with **⌘\\** **(assumed)** (View → Split View), or the split button at the far right of the editor header. While split, that button becomes an **×** in each pane that closes just that pane; the other pane stays. Drag the divider between the panes to resize them (each keeps at least a usable width); the split position is remembered, and double-clicking the divider evens it out.
+  - The active pane has a coral bar along its top. Each pane has its own header, word count and (when pinned) outline pane; Read mode is per pane; pinning applies to both.
   - Split view isn't remembered between launches yet **(assumed)**.
-- **Read mode** (the eye in the editor header, **⇧⌘R** **(assumed)**) hides comments, outlines and bookmarks, so you can just read the draft. Read mode is **read-only (assumed)**: editing while things are hidden risks deleting text you can't see. Exit Read mode to edit.
+- **Read mode** (the eye in the editor header, **⇧⌘R** **(assumed)** for the active pane) hides comments, outlines and bookmarks, so you can just read the draft. Read mode is **read-only (assumed)**: editing while things are hidden risks deleting text you can't see. Exit Read mode to edit.
 - **One-click copy:** a copy button in the top corner of every file. It copies the **draft text only**, with no comments, bookmarks or outline. The copy is formatted text (italics, bold, curly quotes), so it pastes cleanly into Word, Google Docs or email, and also includes a plain-text version.
   - The button in the header's corner copies **all selected files**. When several are shown, each file's dashed header line also has its own copy icon for just that file.
   - The copy uses the editor's font at 12 pt, with book-style first-line indents for drafts and one empty line between files. New York becomes Times New Roman and SF becomes Helvetica Neue, since Mac system fonts don't travel to other apps **(assumed)**.
   - Paragraphs holding only a comment are dropped, as is the space in front of each comment.
 - **⌘F search:** the magnifying glass in the toolbar (beside the right-panel button), or ⌘F, turns the right panel into search, opening the panel if it was hidden. Results appear as you type. It searches **everything**: file names, drafts, outlines, notes, comments and bookmarks. Results are grouped by type, each with a preview snippet. Use the arrow keys to move and Return to jump, or click a result; search stays open so you can work through the results.
-  - Matching ignores case and accents ("lamp" finds "Lámp"). Up to 50 results per group **(assumed)**.
+  - Matching ignores case, accents, full-width forms and curly vs straight quotes ("lamp" finds "Lámp", "don't" finds "don’t"). Up to 50 results per group **(assumed)**.
   - Jumping puts the cursor at the match and flashes it; a file-name result just opens the file.
   - Esc clears the search, then closes it; so does the × or the magnifying glass. Closing brings back comments and bookmarks (or hides the panel again if search opened it).
   - ⌘F replaces the text view's own Find **(assumed)**: one search for everything is simpler than two.
