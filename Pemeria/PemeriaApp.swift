@@ -127,6 +127,9 @@ struct PemeriaCommands: Commands {
             Button("Search Everything…") { app.project?.startSearch() }
                 .keyboardShortcut("f")
                 .disabled(app.project == nil)
+            Button("Find and Replace…") { app.project?.startReplace() }
+                .keyboardShortcut("f", modifiers: [.command, .option])
+                .disabled(app.project == nil)
         }
 
         CommandMenu("Navigate") {

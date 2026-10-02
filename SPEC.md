@@ -248,6 +248,15 @@ Font, size, alignment (justified by default, or left), line height, indent size,
   - Jumping puts the cursor at the match and flashes it; a file-name result just opens the file.
   - Esc clears the search, then closes it; so does the × or the magnifying glass. Closing brings back comments and bookmarks (or hides the panel again if search opened it).
   - ⌘F replaces the text view's own Find **(assumed)**: one search for everything is simpler than two.
+  - **Options**, as small toggles under the field (remembered between launches): **Match Case**, **Whole Words** ("Al" doesn't find "Also"; "Al’s" still counts), and **Word Forms** ("run" also finds "ran", "running"; whole words only, using the Mac's own dictionary forms, on the device).
+  - **Mira + Kate** (terms joined by `+`) finds paragraphs containing every term, each highlighted.
+  - **In: Whole Project ▾** limits the search to the selected files (and everything nested in them, as selected when chosen, so jumping to results doesn't change it) or to files marked with one icon.
+  - A count of matches sits beside the scope; only the first 50 of each kind are listed.
+- **Replace:** ⌥⌘F, or the chevron beside the search field, shows a **Replace with** field under it.
+  - Every result then previews the change: the match struck out, the replacement after it. A checkbox on each result leaves it out. **Replace N** replaces every ticked match, including ones past the 50 shown, in file names, drafts, outlines, notes, comments and bookmark names.
+  - **Preserve case** (on by default; unavailable with Match Case): bob → dave, Bob → Dave, BOB → DAVE. Capitals inside the replacement (McKay) are kept. Italic and bold follow the first letter of the match.
+  - Not available for `+` searches or with Word Forms on (it would turn "ran" into the replacement's plain form).
+  - Before replacing, each file it will change is snapshotted (§11). Afterwards a bar says "Replaced N in M files" with **Undo**, which puts back every file not edited since; it lasts until the next replace or until search closes.
 
 ---
 
@@ -259,6 +268,7 @@ Font, size, alignment (justified by default, or left), line height, indent size,
 | Add bookmark | ⌘D |
 | Start a comment at the cursor | ⌘/ *(assumed)* |
 | Search everything | ⌘F |
+| Find and replace | ⌥⌘F *(assumed)* |
 | Jump to Working File | ⌘J *(assumed)* |
 | Set Working File | ⇧⌘J *(assumed)* |
 | New draft / new note | ⌘N / ⌥⌘N *(assumed)* |

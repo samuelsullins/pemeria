@@ -168,12 +168,90 @@ final class ProjectModel {
     func endSearch() {
         guard isSearching else { return }
         isSearching = false
+        lastReplace = nil
         if panelWasHidden { AppModel.shared.rightPanelVisible = false }
         focusEditor()
     }
 
     func toggleSearch() {
         if isSearching { endSearch() } else { startSearch() }
+    }
+
+    /// ⌥⌘F: search with the Replace field showing.
+    func startReplace() {
+        showReplace = true
+        startSearch()
+    }
+
+    /// The Replace field is showing under the search field.
+    var showReplace = false
+    var replaceText = ""
+    /// Which files search looks in.
+    var searchScope = SearchScope.project
+    /// Dictionary forms of words, for Word Forms searches.
+    @ObservationIgnored let wordForms = WordForms()
+
+    /// The last Replace, so the search panel can offer to undo it.
+    private(set) var lastReplace: ReplaceRecord?
+
+    /// The files `searchScope` covers, or nil for the whole project.
+    var searchScopeFiles: Set<FileID>? {
+        switch searchScope {
+        case .project: nil
+        case .files(let ids): ids.filter { project.files[$0] != nil }
+        case .icon(let id): Set(project.files.values.filter { $0.icons.contains(id) }.map(\.id))
+        }
+    }
+
+    /// Search the selected files, and everything nested in them, from now on.
+    func scopeSearchToSelection() {
+        searchScope = .files(Set(selection.flatMap { [$0] + project.descendants(of: $0) }))
+    }
+
+    /// Replaces every match of the search except the `excluded` result ids (SPEC.md §12).
+    /// Each changed file is snapshotted first, and the whole replace can be undone at once.
+    func replaceAll(_ query: String, options: SearchOptions, excluding excluded: Set<String>, preservingCase: Bool) {
+        commitEditors()
+        let results = project.search(query, options: options, wordForms: wordForms, limit: .max)
+            .filter { !excluded.contains($0.id) }
+        let ids = Set(results.map(\.fileID))
+        guard !ids.isEmpty else { return }
+        let before = project.files.filter { ids.contains($0.key) }
+        for id in ids {
+            try? package.snapshot(id)
+            lastSnapshot[id] = .now
+        }
+        let (changed, count) = project.replace(results, with: replaceText, preservingCase: preservingCase)
+        guard !changed.isEmpty else { return }
+        save(changed)
+        contentToken += 1
+        lastReplace = ReplaceRecord(before: changed.compactMap { before[$0.id] }, after: changed, count: count)
+    }
+
+    /// Puts back what the last Replace changed. A file edited since is left alone; its
+    /// snapshot from just before the replace is in History.
+    func undoReplace() {
+        guard let record = lastReplace else { return }
+        commitEditors()
+        lastReplace = nil
+        var restored: [PemeriaFile] = []
+        var skipped: [String] = []
+        for (old, new) in zip(record.before, record.after) {
+            guard project.files[new.id] == new else {
+                if let current = project.files[new.id] { skipped.append("“\(current.title)”") }
+                continue
+            }
+            _ = project.setContent(old.id, body: old.body, outline: old.outline)
+            _ = project.rename(old.id, to: old.title)
+            if let file = project.files[old.id] { restored.append(file) }
+        }
+        save(restored)
+        contentToken += 1
+        if !skipped.isEmpty {
+            AppModel.shared.message = "These files were edited after the replace, so they were left as they are: "
+                + skipped.joined(separator: ", ")
+                + ". Their text from just before the replace is in History."
+        }
     }
     /// The file whose snapshots are being browsed.
     var historyFile: FileID?
@@ -576,6 +654,22 @@ final class ProjectModel {
             outlinePinned: outlinePinned
         ))
     }
+}
+
+/// Which files ⌘F searches.
+enum SearchScope: Equatable {
+    case project
+    /// Files chosen when the scope was set, so jumping to results doesn't change it.
+    case files(Set<FileID>)
+    /// Files with this icon.
+    case icon(String)
+}
+
+/// One Replace: the changed files before and after, for Undo.
+struct ReplaceRecord {
+    let before: [PemeriaFile]
+    let after: [PemeriaFile]
+    let count: Int
 }
 
 struct JumpRequest: Equatable {

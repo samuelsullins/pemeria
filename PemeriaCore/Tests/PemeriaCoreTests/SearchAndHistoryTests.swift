@@ -43,6 +43,93 @@ struct SearchTests {
         #expect(project.search("crazy").map(\.kind) == [.draft, .draft, .comment])
     }
 
+    @Test func matchCaseAndWholeWords() {
+        var project = Project(manifest: ProjectManifest(name: "x"), files: [:])
+        let a = project.createFile(kind: .draft, title: "A")
+        _ = project.setContent(a.id, body: [.paragraph(Paragraph("Al said Also. AL’s hat, al dente."))], outline: nil)
+        #expect(project.search("al").count == 4)
+        #expect(project.search("Al", options: SearchOptions(matchCase: true)).count == 2)
+        let whole = project.search("al", options: SearchOptions(wholeWords: true))
+        #expect(whole.map(\.matchedText) == ["Al", "AL", "al"])
+        #expect(project.search("Al", options: SearchOptions(matchCase: true, wholeWords: true)).map(\.matchedText) == ["Al"])
+        // An edge that isn't a letter needs no boundary.
+        #expect(project.search("'s", options: SearchOptions(wholeWords: true)).map(\.matchedText) == ["’s"])
+    }
+
+    @Test func scopeLimitsFiles() {
+        let (project, a, n) = sample()
+        #expect(Set(project.search("lamp", options: SearchOptions(scope: [n])).map(\.fileID)) == [n])
+        #expect(!project.search("lamp", options: SearchOptions(scope: [a])).contains { $0.fileID == n })
+    }
+
+    @Test func plusFindsParagraphsWithEveryTerm() {
+        var project = Project(manifest: ProjectManifest(name: "x"), files: [:])
+        let a = project.createFile(kind: .draft, title: "Mira and Kate")
+        _ = project.setContent(a.id, body: [
+            .paragraph(Paragraph("Mira left.")),
+            .paragraph(Paragraph("Kate shoved Mira into the rail.")),
+            .paragraph(Paragraph("Kate alone.")),
+        ], outline: nil)
+        #expect(Project.searchTerms("Mira + Kate") == ["Mira", "Kate"])
+        #expect(Project.searchTerms("Mira +") == ["Mira"])
+        let results = project.search("mira + kate")
+        #expect(results.count == 1)
+        #expect(results[0].location?.paragraph == 1)
+        #expect(results[0].matchedText == "Kate")
+        #expect(results[0].otherMatchRanges.map { (results[0].snippet as NSString).substring(with: $0) } == ["Mira"])
+    }
+
+    @Test func wordFormsFindOtherFormsOfAWord() {
+        var project = Project(manifest: ProjectManifest(name: "x"), files: [:])
+        let a = project.createFile(kind: .draft, title: "A")
+        _ = project.setContent(a.id, body: [.paragraph(Paragraph("She ran. They were running. He runs. A rune."))], outline: nil)
+        let found = project.search("run", options: SearchOptions(wordForms: true)).map(\.matchedText)
+        #expect(found == ["ran", "running", "runs"])
+    }
+
+    @Test func replaceKeepsCaseStylesAndBookmarks() {
+        var project = Project(manifest: ProjectManifest(name: "x"), files: [:])
+        let a = project.createFile(kind: .draft, title: "Bob’s scene")
+        _ = project.setContent(a.id, body: [
+            .bookmark(Bookmark(id: "b1", name: "Bob arrives", offset: 0)),
+            .bookmark(Bookmark(id: "b2", name: "end", offset: 19)),
+            .paragraph(Paragraph(runs: [Run("bob and "), Run("Bob", .italic), Run(" and BOB.")])),
+        ], outline: [.paragraph(Paragraph("Bob // Bob again."))])
+        let results = project.search("bob", options: SearchOptions(wholeWords: true), limit: .max)
+        let (changed, count) = project.replace(results, with: "Dave", preservingCase: true)
+        #expect(count == 7)
+        #expect(changed.count == 1)
+        let file = project.files[a.id]!
+        #expect(file.title == "Dave’s scene")
+        #expect(file.body == [
+            .bookmark(Bookmark(id: "b1", name: "Dave arrives", offset: 0)),
+            .bookmark(Bookmark(id: "b2", name: "end", offset: 22)),
+            .paragraph(Paragraph(runs: [Run("dave and "), Run("Dave", .italic), Run(" and DAVE.")])),
+        ])
+        #expect(file.outline == [.paragraph(Paragraph("Dave // Dave again."))])
+    }
+
+    @Test func replaceSkipsStaleResultsAndSomeResults() {
+        var project = Project(manifest: ProjectManifest(name: "x"), files: [:])
+        let a = project.createFile(kind: .draft, title: "A")
+        _ = project.setContent(a.id, body: [.paragraph(Paragraph("lamp, lamp, lamp"))], outline: nil)
+        let results = project.search("lamp")
+        _ = project.setContent(a.id, body: [.paragraph(Paragraph("lamp, LOMP, lamp"))], outline: nil)
+        // The middle one has changed; the first is left out on purpose.
+        let (_, count) = project.replace(Array(results.dropFirst()), with: "lantern", preservingCase: false)
+        #expect(count == 1)
+        #expect(project.files[a.id]!.body == [.paragraph(Paragraph("lamp, LOMP, lantern"))])
+    }
+
+    @Test func matchingCase() {
+        #expect(Project.matchingCase(of: "bob", "Dave") == "dave")
+        #expect(Project.matchingCase(of: "Bob", "dave") == "Dave")
+        #expect(Project.matchingCase(of: "BOB", "Dave") == "DAVE")
+        #expect(Project.matchingCase(of: "I", "we") == "We")
+        #expect(Project.matchingCase(of: "kay", "McKay") == "mcKay")
+        #expect(Project.matchingCase(of: "Kay", "McKay") == "McKay")
+    }
+
     @Test func snippetsCutAtWordsWithEllipses() {
         let text = String(repeating: "word ", count: 40) + "needle " + String(repeating: "more ", count: 40)
         let ns = text as NSString
