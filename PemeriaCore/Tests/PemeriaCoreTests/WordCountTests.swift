@@ -25,7 +25,7 @@ struct WordCountTests {
         #expect(WordCount.count(in: NSRange(location: 4, length: 0), ofLine: line) == 0)
     }
 
-    @Test func leavesOutCommentsBookmarksAndNotes() {
+    @Test func leavesOutCommentsAndBookmarksAndNotesFromDraftTotals() {
         var project = Project(manifest: ProjectManifest(name: "x"), files: [:])
         let a = project.createFile(kind: .draft, title: "A")
         let b = project.createFile(kind: .draft, title: "B", after: a.id)
@@ -39,8 +39,11 @@ struct WordCountTests {
         _ = project.setContent(b.id, body: [.paragraph(Paragraph("Six seven"))], outline: nil)
         _ = project.setContent(note.id, body: [.paragraph(Paragraph("Notes never count"))], outline: nil)
 
-        #expect(project.wordCounts(selected: [a.id, note.id]) == WordCounts(selectedDraft: 5, selectedOutline: 3, totalDraft: 7, totalOutline: 3))
-        #expect(project.wordCounts(selected: []) == WordCounts(totalDraft: 7, totalOutline: 3))
+        // The current text includes a shown note; the draft totals never do.
+        let counts = project.wordCounts(selected: [a.id, note.id])
+        #expect(counts == WordCounts(currentDraft: 8, currentOutline: 3, totalDraft: 7, totalOutline: 3, totalNotes: 3))
+        #expect(counts.entireProject == 13)
+        #expect(project.wordCounts(selected: [note.id]) == WordCounts(currentDraft: 3, totalDraft: 7, totalOutline: 3, totalNotes: 3))
     }
 }
 

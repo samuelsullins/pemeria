@@ -117,11 +117,14 @@ struct PemeriaCommands: Commands {
             .disabled(app.project == nil)
         }
 
-        CommandMenu("Navigate") {
-            Button("Search Everything…") { app.project?.isSearching = true }
-                .keyboardShortcut("k")
+        // ⌘F searches the whole project, so it replaces the text view's own Find.
+        CommandGroup(replacing: .textEditing) {
+            Button("Search Everything…") { app.project?.startSearch() }
+                .keyboardShortcut("f")
                 .disabled(app.project == nil)
-            Divider()
+        }
+
+        CommandMenu("Navigate") {
             Button("Jump to Working File") { app.project?.jumpToWorkingFile() }
                 .keyboardShortcut("j")
                 .disabled(app.project?.project.manifest.workingFile == nil)

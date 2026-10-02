@@ -67,11 +67,6 @@ struct ProjectView: View {
         }
         .navigationTitle(model.project.manifest.name)
         .onChange(of: model.iconEditorRequest) { columns = .all }
-        .overlay {
-            if model.isSearching {
-                SearchOverlay(model: model)
-            }
-        }
         .sheet(isPresented: Binding(get: { model.historyFile != nil }, set: { if !$0 { model.historyFile = nil } })) {
             if let id = model.historyFile {
                 SnapshotBrowser(model: model, fileID: id)
@@ -82,6 +77,13 @@ struct ProjectView: View {
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    model.toggleSearch()
+                } label: {
+                    Label("Search", systemImage: "magnifyingglass")
+                        .foregroundStyle(model.isSearching ? Theme.accentColor : Color.primary)
+                }
+                .help("Search Everything (⌘F)")
                 Button {
                     AppModel.shared.rightPanelVisible.toggle()
                 } label: {

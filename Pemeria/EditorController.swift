@@ -429,7 +429,7 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         if let fragment = layout.textLayoutFragment(for: CGPoint(x: 1, y: containerPoint.y)) as? BookmarkedParagraphFragment {
             let frameOrigin = fragment.layoutFragmentFrame.origin
             if let mark = fragment.marks().first(where: {
-                $0.iconRect.offsetBy(dx: frameOrigin.x, dy: frameOrigin.y).insetBy(dx: -4, dy: -4).contains(containerPoint)
+                $0.clickRect.offsetBy(dx: frameOrigin.x, dy: frameOrigin.y).insetBy(dx: -4, dy: -4).contains(containerPoint)
             }) {
                 let icon = mark.iconRect.offsetBy(dx: frameOrigin.x + origin.x, dy: frameOrigin.y + origin.y)
                 showBookmarkEditor(for: mark.bookmark, iconRect: icon)

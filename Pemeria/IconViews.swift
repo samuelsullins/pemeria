@@ -298,49 +298,63 @@ struct IconDetailEditor: View {
 
 // MARK: - Header picker
 
-/// The icons (and Working File arrow) beside a single file's name in the header. Click to
-/// pick icons from a list, with "Edit Icons…" at the bottom.
-struct HeaderIconsButton: View {
+/// A single file's name in the header, laid out like its sidebar row: the Working File arrow
+/// before it, its icons after (SPEC.md §12). Clicking either opens the icon list, which ends
+/// with "Edit Icons…". A faint tag stands in when there are no icons, so there's something to click.
+struct HeaderTitleWithIcons<Title: View>: View {
     let model: ProjectModel
     let fileID: FileID
+    @ViewBuilder let title: Title
     @State private var showing = false
 
     var body: some View {
         let icons = model.project.icons(of: fileID)
         let isWorking = model.project.manifest.workingFile == fileID
-        Button {
-            showing.toggle()
-        } label: {
-            HStack(spacing: 4) {
-                if isWorking {
+        HStack(spacing: 6) {
+            if isWorking {
+                Button {
+                    showing.toggle()
+                } label: {
                     Image(systemName: "arrowshape.right.fill")
                         .font(.system(size: 12))
                         .foregroundStyle(Theme.accentColor)
+                        .frame(height: 22)
+                        .contentShape(Rectangle())
                 }
-                if icons.isEmpty {
-                    Image(systemName: "tag")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.tertiary)
-                } else {
-                    IconFan(icons: icons, size: 13)
-                }
+                .buttonStyle(.plain)
+                .help("Working File")
             }
-            .padding(.horizontal, 4)
-            .frame(height: 22)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help("Icons and Working File")
-        .popover(isPresented: $showing, arrowEdge: .bottom) {
-            IconPickerList(model: model, fileID: fileID) {
-                showing = false
-                model.showIconEditor()
+            title
+            Button {
+                showing.toggle()
+            } label: {
+                Group {
+                    if icons.isEmpty {
+                        Image(systemName: "tag")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.tertiary)
+                    } else {
+                        IconFan(icons: icons, size: 13)
+                    }
+                }
+                .padding(.horizontal, 2)
+                .frame(height: 22)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(icons.isEmpty ? "Add Icons" : icons.map(\.name).joined(separator: ", "))
+            .popover(isPresented: $showing, arrowEdge: .bottom) {
+                IconPickerList(model: model, fileID: fileID) {
+                    showing = false
+                    model.showIconEditor()
+                }
             }
         }
     }
 }
 
-private struct IconPickerList: View {
+/// Every icon with a checkmark, Set/Clear Working File, then "Edit Icons…".
+struct IconPickerList: View {
     let model: ProjectModel
     let fileID: FileID
     let onEditIcons: () -> Void

@@ -49,7 +49,7 @@ struct SidebarView: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         // Reading these registers them for observation, so this runs again when they change.
-        _ = (model.revision, model.selection, model.expanded, model.renameRequest)
+        _ = (model.revision, model.appearanceRevision, model.selection, model.expanded, model.renameRequest)
         context.coordinator.model = model
         context.coordinator.sync()
     }
@@ -63,6 +63,8 @@ struct SidebarView: NSViewRepresentable {
         /// NSOutlineView tracks items by object identity, so each file keeps one item object.
         private var items: [FileID: SidebarItem] = [:]
         private var shownRevision = -1
+        private var shownAppearance = -1
+        private var iconPopover: NSPopover?
         /// True while pushing model state into the view, so view callbacks don't echo it back.
         private var isSyncing = false
         private var editingID: FileID?
@@ -95,8 +97,12 @@ struct SidebarView: NSViewRepresentable {
 
             if shownRevision != model.revision, editingID == nil {
                 shownRevision = model.revision
+                shownAppearance = model.appearanceRevision
                 items = items.filter { project.files[$0.key] != nil }
                 outline.reloadData()
+            } else if shownAppearance != model.appearanceRevision {
+                shownAppearance = model.appearanceRevision
+                refreshVisibleRows()
             }
 
             for id in project.tree.bookOrder where !project.tree.children(of: id).isEmpty {
@@ -123,6 +129,39 @@ struct SidebarView: NSViewRepresentable {
             }
         }
 
+        /// Re-applies icons and the Working File arrow to the rows on screen, keeping their views.
+        private func refreshVisibleRows() {
+            guard let outline = outlineView else { return }
+            outline.enumerateAvailableRowViews { rowView, row in
+                guard let cell = rowView.view(atColumn: 0) as? SidebarCell,
+                      let id = id(of: outline.item(atRow: row)) else { return }
+                configure(cell, for: id)
+            }
+        }
+
+        private func configure(_ cell: SidebarCell, for id: FileID) {
+            guard let file = project.files[id] else { return }
+            if editingID != id {
+                cell.configure(with: file, icons: project.icons(of: id), isWorkingFile: project.manifest.workingFile == id)
+            }
+            cell.onIconsClick = { [weak self] view in self?.showIconPicker(for: id, from: view) }
+        }
+
+        /// Clicking a row's icons (or Working File arrow) opens the same icon list as the header.
+        func showIconPicker(for id: FileID, from view: NSView) {
+            iconPopover?.close()
+            let popover = NSPopover()
+            popover.behavior = .transient
+            let host = NSHostingController(rootView: IconPickerList(model: model, fileID: id) { [weak self] in
+                self?.iconPopover?.close()
+                self?.model.showIconEditor()
+            })
+            host.sizingOptions = .preferredContentSize
+            popover.contentViewController = host
+            popover.show(relativeTo: view.bounds, of: view, preferredEdge: .maxX)
+            iconPopover = popover
+        }
+
         // MARK: Data source
 
         func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
@@ -141,9 +180,9 @@ struct SidebarView: NSViewRepresentable {
         // MARK: Rows
 
         func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
-            guard let id = id(of: item), let file = project.files[id] else { return nil }
+            guard let id = id(of: item), project.files[id] != nil else { return nil }
             let cell = outlineView.makeView(withIdentifier: SidebarCell.identifier, owner: nil) as? SidebarCell ?? SidebarCell()
-            cell.configure(with: file, icons: project.icons(of: id), isWorkingFile: project.manifest.workingFile == id)
+            configure(cell, for: id)
             cell.textField?.delegate = self
             return cell
         }
@@ -377,9 +416,16 @@ final class SidebarOutlineView: NSOutlineView {
 final class SidebarCell: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("SidebarCell")
 
-    private let icon = NSImageView()
+    private let icon = ClickableImageView()
     private let label = NSTextField(labelWithString: "")
     private let badges = IconFanView()
+
+    /// Called with the clicked view when the icons or the Working File arrow are clicked.
+    var onIconsClick: ((NSView) -> Void)? {
+        didSet {
+            badges.onClick = onIconsClick.map { handler in { [unowned badges] in handler(badges) } }
+        }
+    }
 
     init() {
         super.init(frame: .zero)
@@ -438,6 +484,11 @@ final class SidebarCell: NSTableCellView {
             icon.toolTip = nil
         }
         badges.icons = icons
+        // Only the arrow is clickable; a note icon just selects the row like the rest of it.
+        icon.onClick = isWorkingFile ? { [weak self] in
+            guard let self else { return }
+            self.onIconsClick?(self.badges.icons.isEmpty ? self.icon : self.badges)
+        } : nil
         updateIconTint()
     }
 
@@ -462,6 +513,12 @@ final class IconFanView: NSView {
 
     var isOnSelection = false {
         didSet { if isOnSelection != oldValue { needsDisplay = true } }
+    }
+
+    var onClick: (() -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        if let onClick, !icons.isEmpty { onClick() } else { super.mouseDown(with: event) }
     }
 
     static let size: CGFloat = 14
@@ -497,6 +554,15 @@ final class IconFanView: NSView {
             image.draw(in: rect)
             context.restoreGState()
         }
+    }
+}
+
+/// An image that handles clicks itself when `onClick` is set, instead of selecting the row.
+final class ClickableImageView: NSImageView {
+    var onClick: (() -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        if let onClick { onClick() } else { super.mouseDown(with: event) }
     }
 }
 

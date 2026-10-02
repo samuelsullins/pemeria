@@ -73,8 +73,7 @@ private struct EditorHeader: View {
     var body: some View {
         ZStack {
             if files.count == 1, let file = files.first {
-                HStack(spacing: 6) {
-                    HeaderIconsButton(model: model, fileID: file.id)
+                HeaderTitleWithIcons(model: model, fileID: file.id) {
                     HeaderTitleField(model: model, file: file)
                         .id(file.id)
                 }
@@ -190,11 +189,11 @@ private struct WordCountBar: View {
 
     var body: some View {
         let counts = model.wordCounts(selected: files)
-        let hasDrafts = files.contains { model.project.files[$0]?.kind == .draft }
+        let onlyNotes = !files.contains { model.project.files[$0]?.kind == .draft }
         let label = if let selected = model.selectedTextWords, !model.isSplit || model.selectedTextPane == pane {
             "\(Self.words(selected)) selected"
         } else {
-            hasDrafts ? Self.words(counts.selectedDraft) : "Notes aren’t counted"
+            Self.words(counts.currentDraft)
         }
         Button {
             showingDetails.toggle()
@@ -211,11 +210,19 @@ private struct WordCountBar: View {
         .help("Word count. Click for details.")
         .popover(isPresented: $showingDetails, arrowEdge: .top) {
             Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 6) {
-                row("Selected Draft", counts.selectedDraft)
-                row("Selected Outline", counts.selectedOutline)
+                row(onlyNotes ? "Current Note" : "Current Draft", counts.currentDraft)
+                if !onlyNotes { row("Current Outline", counts.currentOutline) }
                 Divider()
                 row("Total Draft", counts.totalDraft)
                 row("Total Outline", counts.totalOutline)
+                Divider()
+                row("Entire Project", counts.entireProject)
+                GridRow {
+                    Text("Drafts, outlines and notes")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .gridCellColumns(2)
+                }
             }
             .padding(14)
         }

@@ -56,39 +56,52 @@ public enum WordCount {
     }
 }
 
-/// The numbers behind the word-count bar and its popover. Notes never count.
+/// The numbers behind the word-count bar and its popover (SPEC.md §10).
 public struct WordCounts: Hashable, Sendable {
-    public var selectedDraft = 0
-    public var selectedOutline = 0
+    /// The text of the files being shown, notes included.
+    public var currentDraft = 0
+    /// The outlines of the drafts being shown.
+    public var currentOutline = 0
+    /// Every draft's text. Notes never count here.
     public var totalDraft = 0
     public var totalOutline = 0
+    /// Every note's text.
+    public var totalNotes = 0
 
-    public init(selectedDraft: Int = 0, selectedOutline: Int = 0, totalDraft: Int = 0, totalOutline: Int = 0) {
-        self.selectedDraft = selectedDraft
-        self.selectedOutline = selectedOutline
+    /// Everything: drafts, outlines and notes.
+    public var entireProject: Int { totalDraft + totalOutline + totalNotes }
+
+    public init(currentDraft: Int = 0, currentOutline: Int = 0, totalDraft: Int = 0, totalOutline: Int = 0, totalNotes: Int = 0) {
+        self.currentDraft = currentDraft
+        self.currentOutline = currentOutline
         self.totalDraft = totalDraft
         self.totalOutline = totalOutline
+        self.totalNotes = totalNotes
     }
 }
 
 extension Project {
-    /// Word counts for the selected drafts and the whole project. `perFile` returns a draft's
-    /// (body, outline) counts; callers can pass a cached version.
+    /// Word counts for the files being shown and the whole project. `perFile` returns a
+    /// file's (body, outline) counts; callers can pass a cached version.
     public func wordCounts(selected: Set<FileID>, perFile: (PemeriaFile) -> (body: Int, outline: Int) = Project.wordCount(of:)) -> WordCounts {
         var counts = WordCounts()
-        for file in files.values where file.kind == .draft {
+        for file in files.values {
             let (body, outline) = perFile(file)
-            counts.totalDraft += body
-            counts.totalOutline += outline
-            if selected.contains(file.id) {
-                counts.selectedDraft += body
-                counts.selectedOutline += outline
+            switch file.kind {
+            case .draft:
+                counts.totalDraft += body
+                counts.totalOutline += outline
+                if selected.contains(file.id) { counts.currentOutline += outline }
+            case .note:
+                counts.totalNotes += body
             }
+            if selected.contains(file.id) { counts.currentDraft += body }
         }
         return counts
     }
 
+    /// A file's (body, outline) word counts. Notes have no outline, even a hidden leftover one.
     public static func wordCount(of file: PemeriaFile) -> (body: Int, outline: Int) {
-        (WordCount.count(file.body), WordCount.count(file.outline ?? []))
+        (WordCount.count(file.body), file.kind == .draft ? WordCount.count(file.outline ?? []) : 0)
     }
 }

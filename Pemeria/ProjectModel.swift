@@ -10,6 +10,9 @@ final class ProjectModel {
     private(set) var project: Project
     /// Bumped whenever the sidebar's contents change (names, kinds, structure). Not for typing.
     private(set) var revision = 0
+    /// Bumped when only how rows look changes (icons, the Working File), so the sidebar
+    /// refreshes rows in place rather than reloading (which would close an open icon popover).
+    private(set) var appearanceRevision = 0
     /// Selected files, in book order: what the sidebar shows, and what the active editor
     /// pane shows.
     var selection: [FileID] = [] {
@@ -83,8 +86,34 @@ final class ProjectModel {
 
     // MARK: Search, snapshots and trash
 
-    /// Shows the ⌘K search overlay.
-    var isSearching = false
+    /// ⌘F search has taken over the right panel (SPEC.md §12).
+    private(set) var isSearching = false
+    var searchQuery = ""
+    /// Bumped to put the cursor in the search field.
+    private(set) var searchFocusRequest = 0
+    /// Whether the right panel was hidden before search opened it, so closing search hides it again.
+    @ObservationIgnored private var panelWasHidden = false
+
+    func startSearch() {
+        commitEditors()
+        if !isSearching {
+            panelWasHidden = !AppModel.shared.rightPanelVisible
+            isSearching = true
+        }
+        AppModel.shared.rightPanelVisible = true
+        searchFocusRequest += 1
+    }
+
+    func endSearch() {
+        guard isSearching else { return }
+        isSearching = false
+        if panelWasHidden { AppModel.shared.rightPanelVisible = false }
+        focusEditor()
+    }
+
+    func toggleSearch() {
+        if isSearching { endSearch() } else { startSearch() }
+    }
     /// The file whose snapshots are being browsed.
     var historyFile: FileID?
     var isShowingTrash = false
@@ -268,7 +297,8 @@ final class ProjectModel {
 
     /// Turns an icon on or off for `ids` (SPEC.md §4).
     func toggleIcon(_ iconID: String, on ids: [FileID]) {
-        save(project.toggleIcon(iconID, on: ids))
+        save(project.toggleIcon(iconID, on: ids), structural: false)
+        appearanceRevision += 1
     }
 
     func showIconEditor() {
@@ -327,15 +357,15 @@ final class ProjectModel {
     func setIconDefinitions(_ icons: [IconDefinition]) {
         let changed = project.setIconDefinitions(icons)
         writeManifest()
-        save(changed)
-        revision += 1
+        save(changed, structural: false)
+        appearanceRevision += 1
     }
 
     /// Makes `id` the Working File, or clears it (SPEC.md §8).
     func setWorkingFile(_ id: FileID?) {
         guard project.setWorkingFile(id) else { return }
         writeManifest()
-        revision += 1
+        appearanceRevision += 1
     }
 
     /// ⌘J: shows the Working File, with the cursor where you left it.

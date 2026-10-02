@@ -30,6 +30,19 @@ struct SearchTests {
         #expect(project.search("lamp", limit: 1).filter { $0.kind == .draft }.count == 1)
     }
 
+    @Test func findsWholeWordsAcrossStyleRunsAndCurlyText() {
+        var project = Project(manifest: ProjectManifest(name: "x"), files: [:])
+        let a = project.createFile(kind: .draft, title: "A")
+        _ = project.setContent(a.id, body: [
+            .paragraph(Paragraph(runs: [Run("“That’s "), Run("cra", .italic), Run("zy,” she said.")])),
+            .paragraph(Paragraph("Utterly crazy. // crazy note.")),
+        ], outline: nil)
+        for query in ["crazy", "CRAZY", "zy", "crazy,", "That’s crazy"] {
+            #expect(!project.search(query).isEmpty, "\(query)")
+        }
+        #expect(project.search("crazy").map(\.kind) == [.draft, .draft, .comment])
+    }
+
     @Test func snippetsCutAtWordsWithEllipses() {
         let text = String(repeating: "word ", count: 40) + "needle " + String(repeating: "more ", count: 40)
         let ns = text as NSString

@@ -1,16 +1,20 @@
 import PemeriaCore
 import SwiftUI
 
-/// Comments above, bookmarks below (SPEC.md §6–7).
+/// Comments above, bookmarks below (SPEC.md §6–7); or search, while it's open (§12).
 struct RightPanel: View {
     let model: ProjectModel
 
     var body: some View {
-        VSplitView {
-            CommentsSection(model: model)
-                .frame(minHeight: 120, idealHeight: 300)
-            BookmarksSection(model: model)
-                .frame(minHeight: 120, idealHeight: 260)
+        if model.isSearching {
+            SearchPanel(model: model)
+        } else {
+            VSplitView {
+                CommentsSection(model: model)
+                    .frame(minHeight: 120, idealHeight: 300)
+                BookmarksSection(model: model)
+                    .frame(minHeight: 120, idealHeight: 260)
+            }
         }
     }
 }

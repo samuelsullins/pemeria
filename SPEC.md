@@ -18,7 +18,7 @@ Items marked **(assumed)** are choices Claude made that the author hasn't confir
 - File icons, defaulting to story beats.
 - Notes vs. drafts.
 - Word count.
-- ⌘K search across everything.
+- ⌘F search across everything.
 - Split view, Read mode, and a one-click copy button on every file.
 - Always saved, with automatic snapshots and a trash.
 
@@ -126,7 +126,7 @@ The sidebar and the right panel each toggle on and off. One project is open at a
 - **Rename:** double-click the name, type, then Return.
 - **Notes vs. drafts:** right-click → "Make Note" / "Make Draft". Notes show a note icon and never count toward the draft word count.
 - **File icons:** up to 3 per file. They're drawn slightly overlapping, fanned like playing cards, to save room. Assign them from the right-click menu. Icons are defined per project (name, color, symbol) and you can make as many as you like. The defaults are the five story beats in §2. Each icon is drawn as its symbol in its colour (plain or `.fill` symbols, never the circled kind); on a selected row they get a thin white halo.
-  - **Adding icons:** click the icons beside the file name in the editor header (one file selected) for a list of every icon with checkmarks, Set/Clear Working File, and **Edit Icons…** at the bottom. Right-click → **Icons ▸** in the sidebar does the same and works on several files: choosing an icon adds it to all of them, or removes it if they all have it.
+  - **Adding icons:** click a file's icons (or its Working File arrow), in its sidebar row or in the editor header, for a list of every icon with checkmarks, Set/Clear Working File, and **Edit Icons…** at the bottom. The header shows a faint tag when a file has no icons, so there's something to click. Right-click → **Icons ▸** in the sidebar works on several files at once: choosing an icon adds it to all of them, or removes it if they all have it.
   - **Editing icons:** the **Icons** pane at the bottom of the sidebar (fold it away with its chevron) shows every icon as a tile. Click a tile for a visual editor: a big preview, the name, colour swatches (plus a custom colour), a grid of symbols, move left/right, and Delete. Changes save straight away. **+** adds an icon. "Edit Icons…" anywhere opens this pane.
   - Deleting an icon removes it from every file, after asking if any file uses it **(assumed)**.
 - **Working File:** shown with a coral **fat arrow** in front of its name (in place of the note icon, if it's a note). Only one file per project can be the Working File (see §8).
@@ -182,7 +182,7 @@ Font, size, alignment (justified by default, or left), line height, indent size,
 
 - **⌘D** opens a small name popup at the cursor, Blender-style. Type a name, press Return, done. Esc cancels. The popup opens below the cursor, or above it when the cursor is low in the window. Leaving the name empty names the bookmark after the next few words **(assumed)**.
 - **A bookmark marks an exact spot**, even mid-paragraph or on a blank line. A bookmark icon sits in the left margin beside its line (with the name next to it when the margin has room), and a faint accent tick marks the exact spot in the text. The bookmark moves with the text around it.
-- **Click the margin icon** for a small popup with the full name ready to edit (Return saves) and a **Delete** button. ⌘Z undoes either.
+- **Click the margin icon or the name beside it** for a small popup with the full name ready to edit (Return saves) and a **Delete** button. ⌘Z undoes either.
 - **Typing never deletes a bookmark by accident:** Backspace and Delete step over it and remove the character beyond. Deleting a selection that contains a bookmark does remove it.
 - **Bookmarks panel:** lists all bookmarks in the project, in book order **(assumed: always project-wide, since bookmarks are for navigation)**. Click one to jump. Double-click to rename. Right-click to rename or delete. The **+** button does the same as ⌘D.
 
@@ -208,15 +208,14 @@ Font, size, alignment (justified by default, or left), line height, indent size,
 
 ## 10. Word count
 
-- **The bar** at the bottom shows the word count of the **selected drafts' text**. It leaves out outlines, comments, bookmarks and notes.
+- **The bar** at the bottom shows the word count of the **text you're looking at**: the shown files' text, notes included. It leaves out outlines, comments and bookmarks.
 - **Click it** to see:
-  - Selected Draft
-  - Selected Outline
-  - Total Draft (whole project)
-  - Total Outline (whole project)
+  - Current Draft (or Current Note, when only notes are shown)
+  - Current Outline
+  - Total Draft and Total Outline (whole project; notes never count here)
+  - Entire Project: drafts, outlines and notes together
 - **Counting method:** match Microsoft Word, so numbers agree with what agents and publishers see. Word counts every run of characters between spaces as one word, so `well-known` and `word—word` (no spaces) are one word each, and a spaced dash ` — ` or a lone `…` counts as a word. *Still to check against Word itself with a sample text.*
 - The count updates when you pause typing (each autosave), not on every keystroke **(assumed)**.
-- With only notes selected, the bar says "Notes aren't counted".
 - **With text selected**, the bar shows the selection's count instead ("212 words selected"), leaving out comments. This counts whatever is selected, notes and outlines included.
 
 ---
@@ -234,7 +233,7 @@ Font, size, alignment (justified by default, or left), line height, indent size,
 
 ## 12. Other features
 
-- **Header:** shows the file name. Click and type to rename it when one file is selected; Return or clicking away saves, Esc puts the old name back. With one file selected, its icons and Working File arrow sit just left of the name (click them to change them, §4). With several selected it shows "Name, Name, …", can't be edited, and shows no icons. The header's right corner holds the **Read mode** eye and the **copy** button.
+- **Header:** shows the file name. Click and type to rename it when one file is selected; Return or clicking away saves, Esc puts the old name back. With one file selected, the header matches its sidebar row: the Working File arrow before the name and its icons after (click either to change them, §4). With several selected it shows "Name, Name, …", can't be edited, and shows no icons. The header's right corner holds the **Read mode** eye and the **copy** button.
 - **Split view:** two editor panes side by side, one of them active (clearly highlighted). Selecting in the sidebar changes what the **active** pane shows, and clicking into a pane makes the sidebar show that pane's selection. Toggle with **⌘\\** **(assumed)** (View → Split View).
   - The active pane has a coral bar along its top. Each pane has its own header, word count and (when pinned) outline pane; Read mode and pinning apply to both.
   - Split view isn't remembered between launches yet **(assumed)**.
@@ -243,9 +242,11 @@ Font, size, alignment (justified by default, or left), line height, indent size,
   - The button in the header's corner copies **all selected files**. When several are shown, each file's dashed header line also has its own copy icon for just that file.
   - The copy uses the editor's font at 12 pt, with book-style first-line indents for drafts and one empty line between files. New York becomes Times New Roman and SF becomes Helvetica Neue, since Mac system fonts don't travel to other apps **(assumed)**.
   - Paragraphs holding only a comment are dropped, as is the space in front of each comment.
-- **⌘K search:** an overlay you type into, with results as you type. It searches **everything**: file names, drafts, outlines, notes, comments and bookmarks. Results are grouped by type, each with a preview snippet. Use the arrow keys to move and Return to jump.
+- **⌘F search:** the magnifying glass in the toolbar (beside the right-panel button), or ⌘F, turns the right panel into search, opening the panel if it was hidden. Results appear as you type. It searches **everything**: file names, drafts, outlines, notes, comments and bookmarks. Results are grouped by type, each with a preview snippet. Use the arrow keys to move and Return to jump, or click a result; search stays open so you can work through the results.
   - Matching ignores case and accents ("lamp" finds "Lámp"). Up to 50 results per group **(assumed)**.
-  - Jumping puts the cursor at the match and flashes it; a file-name result just opens the file. Esc or a click outside closes.
+  - Jumping puts the cursor at the match and flashes it; a file-name result just opens the file.
+  - Esc clears the search, then closes it; so does the × or the magnifying glass. Closing brings back comments and bookmarks (or hides the panel again if search opened it).
+  - ⌘F replaces the text view's own Find **(assumed)**: one search for everything is simpler than two.
 
 ---
 
@@ -256,7 +257,7 @@ Font, size, alignment (justified by default, or left), line height, indent size,
 | Italic / Bold | ⌘I / ⌘B |
 | Add bookmark | ⌘D |
 | Start a comment at the cursor | ⌘/ *(assumed)* |
-| Search everything | ⌘K |
+| Search everything | ⌘F |
 | Jump to Working File | ⌘J *(assumed)* |
 | Set Working File | ⇧⌘J *(assumed)* |
 | New draft / new note | ⌘N / ⌥⌘N *(assumed)* |
@@ -287,6 +288,6 @@ Font, size, alignment (justified by default, or left), line height, indent size,
 4. **Multi-file editor:** one view for several files, page breaks, cross-file edit blocking, inline outlines, the pinned outline pane.
 5. **Comments, bookmarks, the right panel, Read mode.**
 6. **Word count, file icons, Working File, header rename, one-click copy.**
-7. **⌘K search, split view, the snapshot browser.**
+7. **⌘F search, split view, the snapshot browser.**
 
 **Later:** export, lists in notes, iCloud sync, the iPhone app.

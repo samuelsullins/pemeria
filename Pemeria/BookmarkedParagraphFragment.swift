@@ -11,6 +11,11 @@ final class BookmarkedParagraphFragment: NSTextLayoutFragment {
         let iconRect: CGRect
         /// Thin tick at the bookmark's spot in the text, relative to the fragment's origin.
         let tickRect: CGRect
+        /// The name, left of the icon, when it's the only bookmark on its line and the margin has room.
+        var labelRect: CGRect?
+
+        /// Everything that opens the bookmark's popup when clicked: the icon and its name.
+        var clickRect: CGRect { labelRect.map { iconRect.union($0) } ?? iconRect }
     }
 
     /// Bookmarks in this paragraph, with their character index in the paragraph.
@@ -65,6 +70,7 @@ final class BookmarkedParagraphFragment: NSTextLayoutFragment {
             let tick = CGRect(x: x - 0.75, y: baseline - font.capHeight, width: 1.5, height: font.capHeight + 2)
             return Mark(bookmark: bookmark, iconRect: icon, tickRect: tick)
         }
+        .withLabels(marginWidth: textLayoutManager?.textContainer?.textView?.textContainerInset.width ?? 0)
     }
 
     override func draw(at point: CGPoint, in context: CGContext) {
@@ -77,7 +83,6 @@ final class BookmarkedParagraphFragment: NSTextLayoutFragment {
         let symbol = NSImage(systemSymbolName: "bookmark.fill", accessibilityDescription: "Bookmark")?
             .withSymbolConfiguration(.init(pointSize: Self.iconSize - 2, weight: .semibold)
                 .applying(.init(hierarchicalColor: accent)))
-        let marginWidth = (textLayoutManager?.textContainer?.textView?.textContainerInset.width ?? 0)
         let marks = marks()
 
         // On a line with no words, the margin icon says it all; skip the tick.
@@ -94,18 +99,30 @@ final class BookmarkedParagraphFragment: NSTextLayoutFragment {
             let icon = mark.iconRect.offsetBy(dx: point.x, dy: point.y)
             symbol?.draw(in: icon)
 
-            // The name, to the left of the icon, if it's the only bookmark on its line and fits.
-            let sharesLine = marks.contains { $0.iconRect.minY == mark.iconRect.minY && $0.bookmark != mark.bookmark }
-            let room = marginWidth - Self.iconGap - Self.iconSize - 14
-            guard !sharesLine, room > 40 else { continue }
-            let name = NSAttributedString(string: mark.bookmark.name, attributes: [
-                .font: Self.nameFont,
-                .foregroundColor: accent.withAlphaComponent(0.85),
-            ])
-            let width = min(name.size().width, room)
-            let nameRect = CGRect(x: icon.minX - 5 - width, y: icon.midY - name.size().height / 2,
-                                  width: width, height: name.size().height)
-            name.draw(with: nameRect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
+            guard let label = mark.labelRect else { continue }
+            Self.name(mark.bookmark, color: accent.withAlphaComponent(0.85))
+                .draw(with: label.offsetBy(dx: point.x, dy: point.y), options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
+        }
+    }
+
+    static func name(_ bookmark: Bookmark, color: NSColor = .labelColor) -> NSAttributedString {
+        NSAttributedString(string: bookmark.name, attributes: [.font: nameFont, .foregroundColor: color])
+    }
+}
+
+private extension Array where Element == BookmarkedParagraphFragment.Mark {
+    /// Gives each mark that's alone on its line a name label, if the margin has room.
+    func withLabels(marginWidth: CGFloat) -> [Element] {
+        let room = marginWidth - BookmarkedParagraphFragment.iconGap - BookmarkedParagraphFragment.iconSize - 14
+        return map { mark in
+            var mark = mark
+            let sharesLine = contains { $0.iconRect.minY == mark.iconRect.minY && $0.bookmark != mark.bookmark }
+            guard !sharesLine, room > 40 else { return mark }
+            let size = BookmarkedParagraphFragment.name(mark.bookmark).size()
+            let width = Swift.min(size.width, room)
+            mark.labelRect = CGRect(x: mark.iconRect.minX - 5 - width, y: mark.iconRect.midY - size.height / 2,
+                                    width: width, height: size.height)
+            return mark
         }
     }
 }
