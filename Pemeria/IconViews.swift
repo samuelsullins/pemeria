@@ -75,64 +75,65 @@ struct IconFan: View {
 
 // MARK: - Sidebar pane
 
-/// The Icons pane at the bottom of the sidebar (SPEC.md §4): every icon in the project as a
-/// tile. Click a tile to change its look; + adds one.
+/// The Labels pane at the bottom of the sidebar (SPEC.md §4), laid out like the Comments and
+/// Bookmarks sections: a header with +, then every label in the project by name. Click one to
+/// change its look. In the code, labels are "icons".
 struct IconsPane: View {
     let model: ProjectModel
     @AppStorage("iconsPaneOpen") private var isOpen = false
     @State private var editing: String?
 
-    private let columns = [GridItem(.adaptive(minimum: 30, maximum: 34), spacing: 4)]
-
     var body: some View {
         VStack(spacing: 0) {
             Divider()
-            HStack(spacing: 6) {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.15)) { isOpen.toggle() }
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 9, weight: .bold))
-                            .rotationEffect(.degrees(isOpen ? 90 : 0))
-                        Text("ICONS")
-                            .font(.system(size: 10, weight: .semibold))
-                            .kerning(1.2)
-                    }
-                    .foregroundStyle(.secondary)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                Spacer()
+            SectionHeader(title: "Labels") {
                 if isOpen {
                     Button {
                         editing = model.addIcon().id
                     } label: {
-                        Image(systemName: "plus")
+                        HeaderWordButton(title: "New Label")
                     }
                     .buttonStyle(.borderless)
-                    .help("New Icon")
+                    .help("New Label")
                 }
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) { isOpen.toggle() }
+                } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .rotationEffect(.degrees(isOpen ? 90 : 0))
+                        .frame(width: 14)
+                }
+                .buttonStyle(.borderless)
+                .help(isOpen ? "Hide Labels" : "Show Labels")
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
 
             if isOpen {
-                LazyVGrid(columns: columns, alignment: .leading, spacing: 4) {
-                    ForEach(model.project.manifest.icons) { icon in
-                        IconTile(icon: icon, isEditing: editing == icon.id) {
-                            editing = icon.id
+                Divider()
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(model.project.manifest.icons) { icon in
+                            LabelRow(icon: icon, files: model.usage(of: icon.id), isEditing: editing == icon.id) {
+                                editing = icon.id
+                            }
+                            .popover(isPresented: Binding(
+                                get: { editing == icon.id },
+                                set: { if !$0, editing == icon.id { editing = nil } }
+                            ), arrowEdge: .trailing) {
+                                IconDetailEditor(model: model, iconID: icon.id) { editing = nil }
+                            }
                         }
-                        .popover(isPresented: Binding(
-                            get: { editing == icon.id },
-                            set: { if !$0, editing == icon.id { editing = nil } }
-                        ), arrowEdge: .trailing) {
-                            IconDetailEditor(model: model, iconID: icon.id) { editing = nil }
+                        if model.project.manifest.icons.isEmpty {
+                            Text("No labels yet. Press + to make one.")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .padding(12)
                         }
                     }
+                    .padding(.vertical, 4)
                 }
-                .padding(.horizontal, 10)
-                .padding(.bottom, model.missingDefaultIcons.isEmpty ? 8 : 4)
+                .frame(maxHeight: 220)
+                .fixedSize(horizontal: false, vertical: true)
                 .transition(.opacity)
                 if !model.missingDefaultIcons.isEmpty {
                     Button("Add Story Beats") { model.addDefaultIcons() }
@@ -151,29 +152,45 @@ struct IconsPane: View {
     }
 }
 
-private struct IconTile: View {
+/// One label in the Labels pane: its symbol in its colour, its name, and how many files use it.
+private struct LabelRow: View {
     let icon: IconDefinition
+    let files: Int
     let isEditing: Bool
     let action: () -> Void
     @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
-            IconGlyph(icon: icon, size: 15)
-                .frame(width: 30, height: 30)
-                .background(
-                    RoundedRectangle(cornerRadius: 7)
-                        .fill(Color.primary.opacity(isEditing ? 0.12 : hovering ? 0.07 : 0))
-                )
-                .contentShape(Rectangle())
+            HStack(spacing: 8) {
+                IconGlyph(icon: icon, size: 13)
+                    .frame(width: 18)
+                Text(icon.name)
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                if files > 0 {
+                    Text("\(files)")
+                        .font(.caption)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.primary.opacity(isEditing ? 0.1 : hovering ? 0.05 : 0))
+            )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .padding(.horizontal, 6)
         .onHover { hovering = $0 }
-        .help(icon.name)
+        .help(files == 1 ? "Used by 1 file. Click to edit." : "Used by \(files) files. Click to edit.")
     }
 }
 
-/// The popover for one icon: a big preview with its name, colour swatches and a symbol grid.
+/// The popover for one label: a big preview with its name, colour swatches and a symbol grid.
 /// Every change is saved straight away.
 struct IconDetailEditor: View {
     let model: ProjectModel
@@ -256,19 +273,19 @@ struct IconDetailEditor: View {
                     Button {
                         model.moveIcon(iconID, by: -1)
                     } label: {
-                        Image(systemName: "arrow.left")
+                        Image(systemName: "arrow.up")
                     }
-                    .help("Move left")
+                    .help("Move up")
                     .disabled(model.project.manifest.icons.first?.id == iconID)
                     Button {
                         model.moveIcon(iconID, by: 1)
                     } label: {
-                        Image(systemName: "arrow.right")
+                        Image(systemName: "arrow.down")
                     }
-                    .help("Move right")
+                    .help("Move down")
                     .disabled(model.project.manifest.icons.last?.id == iconID)
                     Spacer()
-                    Button("Delete Icon", role: .destructive) {
+                    Button("Delete Label", role: .destructive) {
                         if model.usage(of: iconID) > 0 {
                             confirmingDelete = true
                         } else {
@@ -316,7 +333,7 @@ struct IconDetailEditor: View {
 
 /// A single file's name in the header, laid out like its sidebar row: the Working File arrow
 /// before it, its icons after (SPEC.md §12). Clicking either opens the icon list, which ends
-/// with "Edit Icons…". A faint tag stands in when there are no icons, so there's something to click.
+/// with "Edit Labels…". A faint tag stands in when there are no icons, so there's something to click.
 struct HeaderTitleWithIcons<Title: View>: View {
     let model: ProjectModel
     let fileID: FileID
@@ -358,7 +375,7 @@ struct HeaderTitleWithIcons<Title: View>: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help(icons.isEmpty ? "Add Icons" : icons.map(\.name).joined(separator: ", "))
+            .help(icons.isEmpty ? "Add Labels" : icons.map(\.name).joined(separator: ", "))
             .popover(isPresented: $showing, arrowEdge: .bottom) {
                 IconPickerList(model: model, fileID: fileID) {
                     showing = false
@@ -369,7 +386,7 @@ struct HeaderTitleWithIcons<Title: View>: View {
     }
 }
 
-/// Every icon with a checkmark, Set/Clear Working File, then "Edit Icons…".
+/// Every label with a checkmark, Set/Clear Working File, then "Edit Labels…".
 struct IconPickerList: View {
     let model: ProjectModel
     let fileID: FileID
@@ -393,7 +410,7 @@ struct IconPickerList: View {
                 }
             }
             if full {
-                Text("Up to \(Project.maxIconsPerFile) icons per file")
+                Text("Up to \(Project.maxIconsPerFile) labels per file")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 10)
@@ -412,7 +429,7 @@ struct IconPickerList: View {
             Divider().padding(.vertical, 4)
             PickerRow(action: onEditIcons) {
                 Color.clear.frame(width: 20, height: 1)
-                Text("Edit Icons…")
+                Text("Edit Labels…")
                 Spacer()
             }
         }

@@ -26,8 +26,6 @@ public struct SearchResult: Hashable, Sendable, Identifiable {
     public var fileTitle: String
     /// Where the match is; nil for a file-name match. For a `Mira + Kate` search, the first match.
     public var location: TextLocation?
-    /// Set for a bookmark match, so the jump lands on the bookmark itself.
-    public var bookmarkID: String?
     /// A short stretch of text around the match.
     public var snippet: String
     /// The match within `snippet` (UTF-16).
@@ -40,7 +38,7 @@ public struct SearchResult: Hashable, Sendable, Identifiable {
 
     public var id: String {
         let place = location.map { "\($0.inOutline)-\($0.paragraph)-\($0.range.location)" } ?? "name-\(matchRange.location)"
-        return "\(kind.rawValue)-\(fileID.rawValue)-\(place)-\(bookmarkID ?? "")"
+        return "\(kind.rawValue)-\(fileID.rawValue)-\(place)"
     }
 }
 
@@ -134,7 +132,7 @@ extension Project {
             if terms.count == 1 {
                 for match in matcher.ranges(of: terms[0], in: file.title) {
                     add(SearchResult(kind: .fileName, fileID: id, fileTitle: file.title, location: nil,
-                                     bookmarkID: nil, snippet: file.title, matchRange: match))
+                                     snippet: file.title, matchRange: match))
                 }
             }
 
@@ -142,17 +140,17 @@ extension Project {
             if file.kind == .draft, let outline = file.outline { sections.append((true, outline)) }
             for (inOutline, blocks) in sections {
                 let textKind: SearchResult.Kind = inOutline ? .outline : file.kind == .note ? .note : .draft
+                let canonical = Block.canonical(blocks)
+                let sectionAnnotations = Comments.annotations(inLines: canonical.compactMap { block -> String? in
+                    if case .paragraph(let paragraph) = block { return paragraph.text }
+                    return nil
+                })
                 var paragraphIndex = 0
-                for block in Block.canonical(blocks) {
+                for block in canonical {
                     switch block {
-                    case .bookmark(let bookmark):
-                        guard terms.count == 1 else { continue }
-                        for match in matcher.ranges(of: terms[0], in: bookmark.name) {
-                            let location = TextLocation(fileID: id, inOutline: inOutline, paragraph: paragraphIndex,
-                                                        range: NSRange(location: bookmark.offset, length: 0))
-                            add(SearchResult(kind: .bookmark, fileID: id, fileTitle: file.title, location: location,
-                                             bookmarkID: bookmark.id, snippet: bookmark.name, matchRange: match))
-                        }
+                    case .bookmark:
+                        // Old-style bookmark lines aren't shown or searched; `#` bookmarks are text.
+                        continue
                     case .paragraph(let paragraph):
                         defer { paragraphIndex += 1 }
                         let text = paragraph.text as NSString
@@ -171,15 +169,19 @@ extension Project {
                                 .map { NSRange(location: $0.location + shift, length: $0.length) }
                                 .filter { NSMaxRange($0) <= shown }
                             add(SearchResult(kind: textKind, fileID: id, fileTitle: file.title, location: location(all[0]),
-                                             bookmarkID: nil, snippet: snippet, matchRange: snippetMatch, otherMatchRanges: others))
+                                             snippet: snippet, matchRange: snippetMatch, otherMatchRanges: others))
                             continue
                         }
-                        let comments = Comments.ranges(in: paragraph.text)
+                        let annotations = sectionAnnotations[paragraphIndex]
                         for match in matcher.ranges(of: terms[0], in: paragraph.text) {
-                            let inComment = comments.contains { NSLocationInRange(match.location, $0) }
+                            let kind: SearchResult.Kind = switch annotations.first(where: { NSLocationInRange(match.location, $0.range) })?.kind {
+                            case .comment: .comment
+                            case .bookmark: .bookmark
+                            case nil: textKind
+                            }
                             let (snippet, snippetMatch) = Self.snippet(of: text, around: match)
-                            add(SearchResult(kind: inComment ? .comment : textKind, fileID: id, fileTitle: file.title,
-                                             location: location(match), bookmarkID: nil, snippet: snippet, matchRange: snippetMatch))
+                            add(SearchResult(kind: kind, fileID: id, fileTitle: file.title,
+                                             location: location(match), snippet: snippet, matchRange: snippetMatch))
                         }
                     }
                 }
@@ -247,7 +249,7 @@ extension Project {
     // MARK: Replace
 
     /// Replaces search results with `replacement`: in file names, text (drafts, notes, outlines,
-    /// comments) and bookmark names. With `preservingCase`, the replacement follows each match's
+    /// comments and `#` bookmarks). With `preservingCase`, the replacement follows each match's
     /// capitals ("bob" → "dave", "Bob" → "Dave", "BOB" → "DAVE"). Italic and bold follow the
     /// first letter of the match. Results whose text has changed since the search are skipped.
     /// Returns the changed files and how many matches were replaced.
@@ -305,18 +307,7 @@ extension Project {
         }
         var count = 0
 
-        for result in results where result.kind == .bookmark {
-            guard let id = result.bookmarkID,
-                  let index = blocks.firstIndex(where: { if case .bookmark(let b) = $0 { b.id == id } else { false } }),
-                  case .bookmark(var bookmark) = blocks[index] else { continue }
-            let name = bookmark.name as NSString
-            guard NSMaxRange(result.matchRange) <= name.length, name.substring(with: result.matchRange) == result.matchedText else { continue }
-            bookmark.name = name.replacingCharacters(in: result.matchRange, with: replacing(result.matchedText))
-            blocks[index] = .bookmark(bookmark)
-            count += 1
-        }
-
-        let textResults = results.filter { $0.kind != .bookmark && $0.location != nil }
+        let textResults = results.filter { $0.location != nil }
         for (paragraphIndex, matches) in Dictionary(grouping: textResults, by: { $0.location!.paragraph }) {
             guard paragraphBlocks.indices.contains(paragraphIndex) else { continue }
             let blockIndex = paragraphBlocks[paragraphIndex]

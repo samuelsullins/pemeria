@@ -44,11 +44,18 @@ struct EditorStyle: Equatable {
             PreferenceKey.fontSize: 18.0,
             PreferenceKey.lineHeight: 1.45,
             PreferenceKey.indent: 1.5,
-            PreferenceKey.width: 680.0,
+            PreferenceKey.width: 760.0,
             PreferenceKey.justified: true,
             PreferenceKey.theme: "system",
             PreferenceKey.spellCheck: true,
         ])
+        // The column used to default to 680 pt and was widened. Someone who saved exactly the old
+        // default gets the new one too, once; any other width they chose is left alone.
+        let defaults = UserDefaults.standard
+        if !defaults.bool(forKey: "editorWidthWidened"), defaults.persistentDomain(forName: Bundle.main.bundleIdentifier ?? "")?[PreferenceKey.width] as? Double == 680 {
+            defaults.set(760.0, forKey: PreferenceKey.width)
+        }
+        defaults.set(true, forKey: "editorWidthWidened")
     }
 
     static func current() -> EditorStyle {
@@ -95,7 +102,7 @@ struct EditorStyle: Equatable {
 }
 
 enum Theme {
-    /// Pemeria's deep coral. Used directly (rather than the system accent) so it holds even
+    /// Pemeria's ocean blue. Used directly (rather than the system accent) so it holds even
     /// when the user has picked an accent colour in System Settings.
     static let accent = NSColor(named: "AccentColor") ?? .controlAccentColor
     static let accentColor = Color(nsColor: accent)
@@ -114,7 +121,7 @@ struct PreferencesView: View {
     @AppStorage(PreferenceKey.fontSize) private var fontSize = 18.0
     @AppStorage(PreferenceKey.lineHeight) private var lineHeight = 1.45
     @AppStorage(PreferenceKey.indent) private var indent = 1.5
-    @AppStorage(PreferenceKey.width) private var width = 680.0
+    @AppStorage(PreferenceKey.width) private var width = 760.0
     @AppStorage(PreferenceKey.justified) private var justified = true
     @AppStorage(PreferenceKey.theme) private var theme = "system"
     @AppStorage(PreferenceKey.spellCheck) private var spellCheck = true

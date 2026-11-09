@@ -58,7 +58,7 @@ final class AppModel {
     func showNewProjectPanel() {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.pemeriaProject]
-        panel.nameFieldStringValue = "Untitled Novel"
+        panel.nameFieldStringValue = "Untitled Project"
         panel.message = "Name your new project"
         panel.prompt = "Create"
         guard panel.runModal() == .OK, let url = panel.url else { return }

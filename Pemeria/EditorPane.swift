@@ -27,7 +27,7 @@ struct EditorPane: View {
     var body: some View {
         let selected = Set(model.selection(forPane: pane))
         let files = model.project.tree.bookOrder.filter(selected.contains).compactMap { model.project.files[$0] }
-        // While split, the active pane wears a coral bar along its top.
+        // While split, the active pane wears an accent bar along its top.
         let isActive = model.isSplit && model.activePane == pane
         Group {
             if files.isEmpty {
@@ -35,9 +35,12 @@ struct EditorPane: View {
                     .contentShape(Rectangle())
                     .onTapGesture { model.activate(pane: pane) }
                     .overlay(alignment: .topTrailing) {
-                        SplitButton(model: model, pane: pane)
-                            .padding(.trailing, 12)
-                            .padding(.top, 9)
+                        // Nothing to split without a file; while split, the × closes this empty pane.
+                        if model.isSplit {
+                            SplitButton(model: model, pane: pane, compact: false)
+                                .padding(.trailing, 12)
+                                .padding(.top, 9)
+                        }
                     }
             } else {
                 VStack(spacing: 0) {
@@ -45,27 +48,25 @@ struct EditorPane: View {
                         .contentShape(Rectangle())
                         .simultaneousGesture(TapGesture().onEnded { model.activate(pane: pane) })
                     Divider()
-                    if model.isReading(pane: pane) {
-                        EditorView(model: model, mode: .reading, pane: pane)
-                    } else if model.isOutlineView(pane: pane) {
-                        if files.contains(where: { $0.kind == .draft }) {
-                            EditorView(model: model, mode: .outlineView, pane: pane)
-                        } else {
-                            Text("Notes don’t have outlines.")
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        }
-                    } else if model.outlinePinned, files.contains(where: { $0.kind == .draft }) {
-                        OutlineSplit {
-                            EditorView(model: model, mode: .bodies, pane: pane)
+                    let hasDrafts = files.contains { $0.kind == .draft }
+                    let reading = model.isReading(pane: pane)
+                    let outlineView = model.isOutlineView(pane: pane)
+                    if outlineView, !hasDrafts {
+                        Text("Notes don’t have outlines.")
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        // One editor whatever the mode, so pinning the outline (or any other switch)
+                        // keeps the same text view and your place in it, rather than starting over.
+                        // Notes have no outline, so there's no pane to pin for them.
+                        let pinned = model.isOutlinePinned(pane: pane)
+                        let mode: EditorMode = reading ? .reading : outlineView ? .outlineView : pinned ? .bodies : .full
+                        VerticalSplit(showsBottom: !reading && !outlineView && pinned && hasDrafts,
+                                      heightKey: "outlinePaneHeight", defaultHeight: 220, minTop: 160, minBottom: 90) {
+                            EditorView(model: model, mode: mode, pane: pane)
                         } bottom: {
                             PinnedOutlinePane(model: model, pane: pane)
                         }
-                    } else if model.outlinePinned {
-                        // Notes have no outline, so there's no pane to pin.
-                        EditorView(model: model, mode: .bodies, pane: pane)
-                    } else {
-                        EditorView(model: model, mode: .full, pane: pane)
                     }
                     Divider()
                     WordCountBar(model: model, pane: pane, files: files.map(\.id))
@@ -89,48 +90,188 @@ private struct EditorHeader: View {
     let files: [PemeriaFile]
 
     var body: some View {
-        ZStack {
-            if files.count == 1, let file = files.first {
-                HeaderTitleWithIcons(model: model, fileID: file.id) {
-                    RenameField(name: file.title) { model.rename(file.id, to: $0) }
-                        .id(file.id)
-                }
-            } else {
-                Text(files.map(\.title).joined(separator: ", "))
-                    .font(.headline)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
+        // Words and their shortcuts when there's room; then just the words; then the old icons
+        // in a narrow pane (a split, say).
+        ViewThatFits(in: .horizontal) {
+            row(compact: false, hints: true)
+            row(compact: false, hints: false)
+            row(compact: true, hints: false)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.leading, 72)
-        .padding(.trailing, 150)
+        .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .overlay(alignment: .leading) {
-            let reading = model.isReading(pane: pane)
-            HStack(spacing: 10) {
-                Button {
-                    model.toggleReadMode(pane: pane)
-                } label: {
-                    // On: full strength rather than coral, so the header stays quiet.
-                    Image(systemName: "eye.fill")
-                        .foregroundStyle(reading ? Color.primary : Color.secondary)
-                        .frame(width: 18)
-                }
-                .buttonStyle(.borderless)
-                .help(reading ? "Exit Read Mode (⇧⌘R)" : "Read Mode (⇧⌘R): hide comments, outlines and bookmarks")
-                CopyButton(help: files.count == 1 ? "Copy Draft Text" : "Copy Draft Text of All \(files.count) Files") {
-                    model.copyDraftText(of: files.map(\.id))
-                }
+    }
+
+    private func row(compact: Bool, hints: Bool) -> some View {
+        HeaderLayout {
+            HStack(spacing: compact ? 10 : 6) {
+                ReadModeButton(model: model, pane: pane, compact: compact, hint: hints)
+                CopyMenu(model: model, files: files, compact: compact)
+                IndentButton(model: model, files: files, compact: compact)
             }
-            .padding(.leading, 12)
+            .fixedSize()
+            title
+            HStack(spacing: compact ? 10 : 6) {
+                // Too crushed for words, too crushed for the switch: ⇧⌘O and the View menu
+                // still switch views.
+                if !compact {
+                    HStack(spacing: 4) {
+                        DraftOutlineToggle(model: model, pane: pane)
+                        if hints { ShortcutHint(keys: "⇧⌘O") }
+                    }
+                }
+                SplitButton(model: model, pane: pane, compact: compact, hint: hints)
+            }
+            .fixedSize()
         }
-        .overlay(alignment: .trailing) {
-            HStack(spacing: 10) {
-                DraftOutlineToggle(model: model, pane: pane)
-                SplitButton(model: model, pane: pane)
+    }
+
+    @ViewBuilder
+    private var title: some View {
+        if files.count == 1, let file = files.first {
+            HeaderTitleWithIcons(model: model, fileID: file.id) {
+                RenameField(name: file.title) { model.rename(file.id, to: $0) }
+                    .id(file.id)
             }
-            .padding(.trailing, 12)
+        } else {
+            Text(files.map(\.title).joined(separator: ", "))
+                .font(.headline)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+    }
+}
+
+/// The header's three parts: buttons at each end and the title centred in the pane, or in the
+/// gap between the buttons when it would run into them.
+private struct HeaderLayout: Layout {
+    private let spacing: CGFloat = 12
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        let ideal = sizes.reduce(0) { $0 + $1.width } + spacing * CGFloat(max(subviews.count - 1, 0))
+        return CGSize(width: proposal.width ?? ideal, height: sizes.map(\.height).max() ?? 0)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 3 else { return }
+        let left = subviews[0].sizeThatFits(.unspecified)
+        let right = subviews[2].sizeThatFits(.unspecified)
+        subviews[0].place(at: CGPoint(x: bounds.minX, y: bounds.midY), anchor: .leading, proposal: .unspecified)
+        subviews[2].place(at: CGPoint(x: bounds.maxX, y: bounds.midY), anchor: .trailing, proposal: .unspecified)
+        let gapStart = bounds.minX + left.width + spacing
+        let gapEnd = bounds.maxX - right.width - spacing
+        let room = max(0, gapEnd - gapStart)
+        let width = min(subviews[1].sizeThatFits(.unspecified).width, room)
+        let centred = bounds.midX - width / 2
+        let x = min(max(centred, gapStart), gapEnd - width)
+        subviews[1].place(at: CGPoint(x: x, y: bounds.midY), anchor: .leading,
+                          proposal: ProposedViewSize(width: width, height: bounds.height))
+    }
+}
+
+/// A word-button in the editor header: quiet, and shaded while what it names is on, with its
+/// keyboard shortcut after it when there's room.
+private struct HeaderTextLabel: View {
+    let title: String
+    var isOn = false
+    var shortcut: String?
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Text(title)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(isOn ? Color.primary : Color.secondary)
+            if let shortcut { ShortcutHint(keys: shortcut) }
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(Capsule().fill(Color.primary.opacity(isOn ? 0.1 : 0)))
+        .contentShape(Capsule())
+    }
+}
+
+/// A button's keyboard shortcut, drawn small like a key cap: ⇧⌘R. Always gray: fixed system
+/// colours rather than `.tertiary` and friends, which inside a button turn into shades of the
+/// accent blue.
+struct ShortcutHint: View {
+    let keys: String
+
+    var body: some View {
+        Text(keys)
+            .font(.system(size: 10, weight: .medium, design: .rounded))
+            .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
+            .padding(.horizontal, 4)
+            .padding(.vertical, 1)
+            .background(RoundedRectangle(cornerRadius: 4).fill(Color(nsColor: .labelColor).opacity(0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Color(nsColor: .labelColor).opacity(0.1), lineWidth: 0.5))
+            .fixedSize()
+            .accessibilityHidden(true)
+    }
+}
+
+/// Read mode on or off for this pane (SPEC.md §12).
+private struct ReadModeButton: View {
+    let model: ProjectModel
+    let pane: Int
+    let compact: Bool
+    var hint = false
+
+    var body: some View {
+        let reading = model.isReading(pane: pane)
+        Button {
+            model.toggleReadMode(pane: pane)
+        } label: {
+            if compact {
+                // On: full strength rather than the accent, so the header stays quiet.
+                Image(systemName: "eye.fill")
+                    .foregroundStyle(reading ? Color.primary : Color.secondary)
+                    .frame(width: 18)
+            } else {
+                HeaderTextLabel(title: "Read Mode", isOn: reading, shortcut: hint ? "⇧⌘R" : nil)
+            }
+        }
+        .buttonStyle(.plain)
+        .help(reading ? "Exit Read Mode (⇧⌘R)" : "Read Mode (⇧⌘R): hide comments, outlines and bookmarks")
+    }
+}
+
+/// Copy ▾: the shown files' manuscript, their outlines, or both (SPEC.md §12).
+private struct CopyMenu: View {
+    let model: ProjectModel
+    let files: [PemeriaFile]
+    let compact: Bool
+    @State private var copied = false
+
+    var body: some View {
+        let ids = files.map(\.id)
+        Menu {
+            Button("Just Manuscript") { copy(.manuscript, ids) }
+            Button("Just Outlines") { copy(.outlines, ids) }
+                .disabled(!model.hasOutlineText(ids))
+            Button("Outlines + Manuscript") { copy(.both, ids) }
+        } label: {
+            if compact {
+                Image(systemName: copied ? "checkmark" : "doc.on.doc.fill")
+                    .foregroundStyle(Color.secondary)
+            } else {
+                HeaderTextLabel(title: copied ? "Copied" : "Copy")
+            }
+        }
+        // A plain button rather than the borderless menu style, which tints its label with the
+        // accent colour: this way it's the same gray as the other header words.
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(files.count == 1 ? "Copy this file’s text" : "Copy the text of all \(files.count) files")
+    }
+
+    private func copy(_ content: CopyContent, _ ids: [FileID]) {
+        model.copy(content, of: ids)
+        copied = true
+        Task {
+            try? await Task.sleep(for: .seconds(1.2))
+            copied = false
         }
     }
 }
@@ -185,6 +326,34 @@ private struct RenameField: View {
     }
 }
 
+/// First-line indents on or off for the shown files (on when every one of them is indented).
+/// Says what clicking does: "No Indent" while indented, "Use Indent" while not.
+private struct IndentButton: View {
+    let model: ProjectModel
+    let files: [PemeriaFile]
+    let compact: Bool
+
+    var body: some View {
+        let indented = files.allSatisfy(\.indents)
+        let which = files.count == 1 ? "this file" : "these files"
+        Button {
+            model.setIndent(files.map(\.id), to: !indented)
+        } label: {
+            if compact {
+                // On: full strength, like the Read mode eye.
+                Image(systemName: "increase.indent")
+                    .foregroundStyle(indented ? Color.primary : Color.secondary)
+                    .frame(width: 18)
+            } else {
+                HeaderTextLabel(title: indented ? "No Indent" : "Use Indent")
+            }
+        }
+        .buttonStyle(.plain)
+        .help(indented ? "Indenting \(which). Click to stop indenting \(which)."
+                       : "Not indenting \(which). Click to indent \(which).")
+    }
+}
+
 /// Draft | Outline, at the right of the header: the highlighted one is what the pane shows.
 private struct DraftOutlineToggle: View {
     let model: ProjectModel
@@ -216,47 +385,29 @@ private struct DraftOutlineToggle: View {
     }
 }
 
-/// Splits the editor in two; while split, an × that closes this pane.
+/// Splits the editor in two; while split, closes this pane.
 private struct SplitButton: View {
     let model: ProjectModel
     let pane: Int
+    var compact = true
+    var hint = false
 
     var body: some View {
         Button {
             if model.isSplit { model.closePane(pane) } else { model.toggleSplit() }
         } label: {
-            Image(systemName: model.isSplit ? "xmark" : "rectangle.split.2x1.fill")
-                .foregroundStyle(Color.secondary)
-                .frame(width: 18)
-        }
-        .buttonStyle(.borderless)
-        .help(model.isSplit ? "Close This Pane" : "Split View (⌘\\)")
-    }
-}
-
-/// A copy icon that briefly turns into a checkmark.
-struct CopyButton: View {
-    let help: String
-    let action: () -> Void
-    @State private var copied = false
-
-    var body: some View {
-        Button {
-            action()
-            copied = true
-            Task {
-                try? await Task.sleep(for: .seconds(1.2))
-                copied = false
+            // Closing a pane is always an ×: everyone knows what that does.
+            if compact || model.isSplit {
+                Image(systemName: model.isSplit ? "xmark" : "rectangle.split.2x1.fill")
+                    .foregroundStyle(Color.secondary)
+                    .frame(width: 18)
+                    .contentShape(Rectangle())
+            } else {
+                HeaderTextLabel(title: "Split View", shortcut: hint ? "⌘\\" : nil)
             }
-        } label: {
-            // Color.secondary, not .secondary: the latter is a shade of the button's coral tint.
-            Image(systemName: copied ? "checkmark" : "doc.on.doc.fill")
-                .foregroundStyle(Color.secondary)
-                .contentTransition(.symbolEffect(.replace))
-                .frame(width: 18)
         }
-        .buttonStyle(.borderless)
-        .help(help)
+        .buttonStyle(.plain)
+        .help(model.isSplit ? "Close This Pane" : "Split View (⌘\\)")
     }
 }
 
@@ -290,6 +441,13 @@ private struct WordCountBar: View {
         }
         .buttonStyle(.plain)
         .help("Word count. Click for details.")
+        .overlay(alignment: .leading) {
+            // Once per window: in the left (or only) pane.
+            if pane == 0 {
+                SaveStatus(model: model)
+                    .padding(.leading, 12)
+            }
+        }
         .popover(isPresented: $showingDetails, arrowEdge: .top) {
             Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 6) {
                 row(onlyNotes ? "Current Note" : "Current Draft", counts.currentDraft)
@@ -321,6 +479,94 @@ private struct WordCountBar: View {
 
     static func words(_ count: Int) -> String {
         count == 1 ? "1 word" : "\(count.formatted()) words"
+    }
+}
+
+/// "✓ Saved just now" at the foot of the editor, quiet like the word count, so you can see your
+/// words are on disk. Orange if a save failed (it's retried with the next change, or ⌘S).
+private struct SaveStatus: View {
+    let model: ProjectModel
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 10)) { context in
+            Group {
+                if !model.unsaved.isEmpty {
+                    Label("Not saved", systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(Color(nsColor: .systemOrange))
+                        .help("Some changes couldn’t be written to disk. They’re still here; Pemeria tries again with your next change, or press ⌘S.")
+                } else {
+                    Label(Self.text(since: model.lastSavedAt, now: context.date), systemImage: "checkmark")
+                        .foregroundStyle(.secondary)
+                        .help("Pemeria saves as you write, a second after you pause.")
+                }
+            }
+            .font(.system(size: 11))
+            .monospacedDigit()
+            .labelStyle(SpacedLabelStyle())
+        }
+    }
+
+    static func text(since saved: Date?, now: Date) -> String {
+        guard let saved else { return "Saved" }
+        let seconds = Int(now.timeIntervalSince(saved))
+        switch seconds {
+        case ..<60: return "Saved just now"
+        case ..<3600: return "Saved \(seconds / 60) min ago"
+        default: return "Saved at \(saved.formatted(date: .omitted, time: .shortened))"
+        }
+    }
+}
+
+private struct SpacedLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 3) {
+            configuration.icon
+            configuration.title
+        }
+    }
+}
+
+/// The bar that drops in at the top of the window on ⌘S: Pemeria has already saved everything.
+struct SaveConfirmationBar: View {
+    let model: ProjectModel
+    @State private var showing = false
+    @State private var hideTask: Task<Void, Never>?
+
+    var body: some View {
+        let failed = !model.unsaved.isEmpty
+        VStack {
+            if showing {
+                HStack(spacing: 7) {
+                    Image(systemName: failed ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                        .foregroundStyle(Color(nsColor: failed ? .systemOrange : .systemGreen))
+                    Text(failed ? "Some changes couldn’t be saved" : "Autosave is always on")
+                        .fontWeight(.semibold)
+                    if failed {
+                        Text("Pemeria will keep trying")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .font(.system(size: 12))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 7)
+                .background(.regularMaterial, in: Capsule())
+                .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
+                .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+            Spacer()
+        }
+        .padding(.top, 44)
+        .allowsHitTesting(false)
+        .onChange(of: model.saveConfirmation) {
+            withAnimation(.spring(duration: 0.3)) { showing = true }
+            hideTask?.cancel()
+            hideTask = Task {
+                try? await Task.sleep(for: .seconds(1.8))
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeOut(duration: 0.4)) { showing = false }
+            }
+        }
     }
 }
 
@@ -396,16 +642,29 @@ private struct SplitHandle: NSViewRepresentable {
     }
 }
 
-/// Editor above, outline pane below, with a draggable divider. (SwiftUI's VSplitView crashed
-/// here: its split view and the text views fought over layout.)
-private struct OutlineSplit<Top: View, Bottom: View>: View {
-    @ViewBuilder let top: Top
-    @ViewBuilder let bottom: Bottom
-    @AppStorage("outlinePaneHeight") private var paneHeight = 220.0
+/// One view above another with a draggable divider, the lower one's height remembered under
+/// `heightKey`: the editor and the pinned outline pane, or comments and bookmarks. (SwiftUI's
+/// VSplitView crashed in both places: its split view and the views inside fought over layout.)
+struct VerticalSplit<Top: View, Bottom: View>: View {
+    /// False: just the top, full height. The top stays the same view either way.
+    let showsBottom: Bool
+    let top: Top
+    let bottom: Bottom
+    @AppStorage private var paneHeight: Double
     @State private var dragStartHeight: Double?
 
-    private let minTop = 160.0
-    private let minPane = 90.0
+    private let minTop: Double
+    private let minPane: Double
+
+    init(showsBottom: Bool = true, heightKey: String, defaultHeight: Double, minTop: Double, minBottom: Double,
+         @ViewBuilder top: () -> Top, @ViewBuilder bottom: () -> Bottom) {
+        self.showsBottom = showsBottom
+        self.top = top()
+        self.bottom = bottom()
+        _paneHeight = AppStorage(wrappedValue: defaultHeight, heightKey)
+        self.minTop = minTop
+        minPane = minBottom
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -414,29 +673,33 @@ private struct OutlineSplit<Top: View, Bottom: View>: View {
             VStack(spacing: 0) {
                 top
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                Divider()
-                bottom
-                    .frame(maxWidth: .infinity)
-                    .frame(height: height)
+                if showsBottom {
+                    Divider()
+                    bottom
+                        .frame(maxWidth: .infinity)
+                        .frame(height: height)
+                }
             }
             .overlay(alignment: .topLeading) {
-                SplitHandle(axis: .vertical) {
-                    dragStartHeight = height
-                } onDrag: { distance in
-                    let start = dragStartHeight ?? height
-                    paneHeight = min(max(start - distance, minPane), maxPane)
-                } onEnd: {
-                    dragStartHeight = nil
+                if showsBottom {
+                    SplitHandle(axis: .vertical) {
+                        dragStartHeight = height
+                    } onDrag: { distance in
+                        let start = dragStartHeight ?? height
+                        paneHeight = min(max(start - distance, minPane), maxPane)
+                    } onEnd: {
+                        dragStartHeight = nil
+                    }
+                    .frame(width: geometry.size.width, height: SplitHandle.thickness)
+                    .offset(y: geometry.size.height - height - 0.5 - SplitHandle.thickness / 2)
                 }
-                .frame(width: geometry.size.width, height: SplitHandle.thickness)
-                .offset(y: geometry.size.height - height - 0.5 - SplitHandle.thickness / 2)
             }
         }
     }
 }
 
 /// Two editor panes side by side, with a draggable divider. Built by hand for the same
-/// reason as `OutlineSplit`. The split is kept as a fraction, so it holds as the window resizes.
+/// reason as `VerticalSplit`. The split is kept as a fraction, so it holds as the window resizes.
 private struct PaneSplit<Leading: View, Trailing: View>: View {
     @ViewBuilder let leading: Leading
     @ViewBuilder let trailing: Trailing
@@ -483,22 +746,19 @@ private struct PinnedOutlinePane: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text("OUTLINE")
-                    .font(.system(size: 10, weight: .semibold))
-                    .kerning(1.2)
-                    .foregroundStyle(.tertiary)
-                Spacer()
+            // Headed like Documents, Comments, Bookmarks and Labels.
+            SectionHeader(title: "Outline") {
                 Button {
-                    model.outlinePinned = false
+                    model.setOutlinePinned(false, pane: pane)
                 } label: {
-                    Image(systemName: "pin.slash")
+                    // Gray like the editor header's words: a plain button, which doesn't tint.
+                    HeaderWordButton(title: "Unpin Outline", shortcut: "⌥⌘O")
+                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.borderless)
-                .help("Unpin Outline (⌥⌘O)")
+                .buttonStyle(.plain)
+                .help("Put the outlines back under each file (⌥⌘O)")
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 6)
             Divider()
             EditorView(model: model, mode: .outlines, pane: pane)
         }

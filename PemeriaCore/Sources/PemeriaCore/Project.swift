@@ -73,6 +73,16 @@ public struct Project: Sendable {
         return file
     }
 
+    /// Turns first-line indents on or off for files. Returns the changed files.
+    public mutating func setIndent(_ ids: [FileID], to indent: Bool) -> [PemeriaFile] {
+        ids.compactMap { id in
+            guard var file = files[id], file.indents != indent else { return nil }
+            file.indent = indent
+            files[id] = file
+            return file
+        }
+    }
+
     /// Switches files between draft and note. A draft's outline is kept (hidden) while it's a note.
     public mutating func setKind(_ ids: [FileID], to kind: FileKind) -> [PemeriaFile] {
         ids.compactMap { id in

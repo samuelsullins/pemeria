@@ -23,6 +23,9 @@ struct SidebarView: NSViewRepresentable {
         outline.outlineTableColumn = column
         outline.headerView = nil
         outline.style = .sourceList
+        // Pemeria draws the selection itself (SidebarRowView), so a selected row can keep a
+        // stripe of its label colours inside the accent fill.
+        outline.selectionHighlightStyle = .none
         outline.allowsMultipleSelection = true
         outline.indentationPerLevel = 14
         outline.dataSource = coordinator
@@ -33,6 +36,7 @@ struct SidebarView: NSViewRepresentable {
         outline.setDraggingSourceOperationMask(.move, forLocal: true)
         outline.draggingDestinationFeedbackStyle = .sourceList
         outline.onDelete = { [weak coordinator] in coordinator?.confirmTrash(coordinator?.model.selection ?? []) }
+        outline.onCommandDelete = { [weak coordinator] in coordinator?.trashWithoutAsking(coordinator?.model.selection ?? []) }
 
         let menu = NSMenu()
         menu.delegate = coordinator
@@ -42,6 +46,11 @@ struct SidebarView: NSViewRepresentable {
         scroll.documentView = outline
         scroll.hasVerticalScroller = true
         scroll.drawsBackground = false
+        // A little room above the first file and below the last, so they don't touch the
+        // Documents heading's divider or the footer. Set by hand: the list sits below the
+        // heading now, so there's no title bar for the automatic insets to make room for.
+        scroll.automaticallyAdjustsContentInsets = false
+        scroll.contentInsets = NSEdgeInsets(top: 6, left: 0, bottom: 6, right: 0)
         coordinator.outlineView = outline
         coordinator.sync()
         return scroll
@@ -133,10 +142,15 @@ struct SidebarView: NSViewRepresentable {
         private func refreshVisibleRows() {
             guard let outline = outlineView else { return }
             outline.enumerateAvailableRowViews { rowView, row in
-                guard let cell = rowView.view(atColumn: 0) as? SidebarCell,
-                      let id = id(of: outline.item(atRow: row)) else { return }
-                configure(cell, for: id)
+                guard let id = id(of: outline.item(atRow: row)) else { return }
+                (rowView as? SidebarRowView)?.fillColors = fillColors(for: id)
+                if let cell = rowView.view(atColumn: 0) as? SidebarCell { configure(cell, for: id) }
             }
+        }
+
+        /// A file's icon colours, which fill its row (SPEC.md §4).
+        private func fillColors(for id: FileID) -> [NSColor] {
+            project.icons(of: id).map { NSColor(hex: $0.color) ?? .secondaryLabelColor }
         }
 
         private func configure(_ cell: SidebarCell, for id: FileID) {
@@ -188,8 +202,13 @@ struct SidebarView: NSViewRepresentable {
         }
 
         func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
-            SidebarRowView()
+            let rowView = SidebarRowView()
+            if let id = id(of: item) {
+                rowView.fillColors = fillColors(for: id)
+            }
+            return rowView
         }
+
 
         func outlineViewSelectionDidChange(_ notification: Notification) {
             guard !isSyncing, let outline = outlineView else { return }
@@ -296,10 +315,10 @@ struct SidebarView: NSViewRepresentable {
             }
             let kinds = Set(menuTargets.compactMap { project.files[$0]?.kind })
             if kinds.contains(.draft) {
-                menu.addItem(withTitle: "Make Note", action: #selector(makeNote), keyEquivalent: "").target = self
+                menu.addItem(withTitle: "Turn into Note", action: #selector(makeNote), keyEquivalent: "").target = self
             }
             if kinds.contains(.note) {
-                menu.addItem(withTitle: "Make Draft", action: #selector(makeDraft), keyEquivalent: "").target = self
+                menu.addItem(withTitle: "Turn into Draft", action: #selector(makeDraft), keyEquivalent: "").target = self
             }
             menu.addItem(.separator())
             addIconsMenu(to: menu)
@@ -324,7 +343,7 @@ struct SidebarView: NSViewRepresentable {
             model.historyFile = menuTargets.first
         }
 
-        /// "Icons ▸" with a checkable item per icon, then "Edit Icons…".
+        /// "Labels ▸" with a checkable item per label (icon), then "Edit Labels…".
         private func addIconsMenu(to menu: NSMenu) {
             let submenu = NSMenu()
             let targets = menuTargets.compactMap { project.files[$0] }
@@ -343,8 +362,8 @@ struct SidebarView: NSViewRepresentable {
                 }
             }
             if !project.manifest.icons.isEmpty { submenu.addItem(.separator()) }
-            submenu.addItem(withTitle: "Edit Icons…", action: #selector(editIcons), keyEquivalent: "").target = self
-            let parent = menu.addItem(withTitle: "Icons", action: nil, keyEquivalent: "")
+            submenu.addItem(withTitle: "Edit Labels…", action: #selector(editIcons), keyEquivalent: "").target = self
+            let parent = menu.addItem(withTitle: "Labels", action: nil, keyEquivalent: "")
             parent.submenu = submenu
             submenu.autoenablesItems = false
         }
@@ -364,6 +383,18 @@ struct SidebarView: NSViewRepresentable {
         @objc private func makeNote() { model.setKind(menuTargets, to: .note) }
         @objc private func makeDraft() { model.setKind(menuTargets, to: .draft) }
         @objc private func trashClicked() { confirmTrash(menuTargets) }
+
+        /// ⌘⌫, as in Finder: straight to the trash, no question, since it can be restored from
+        /// there. Still asks when files nested inside would go too, so they never vanish unseen.
+        func trashWithoutAsking(_ ids: [FileID]) {
+            let topmost = project.topmost(ids)
+            guard !topmost.isEmpty else { return }
+            if topmost.contains(where: { !project.descendants(of: $0).isEmpty }) {
+                confirmTrash(topmost)
+            } else {
+                model.trash(topmost)
+            }
+        }
 
         func confirmTrash(_ ids: [FileID]) {
             let topmost = project.topmost(ids)
@@ -400,13 +431,53 @@ final class SidebarItem: NSObject {
 }
 
 final class SidebarOutlineView: NSOutlineView {
+    /// Delete: move to the trash, after asking.
     var onDelete: (() -> Void)?
+    /// ⌘⌫: move to the trash straight away.
+    var onCommandDelete: (() -> Void)?
+
+    /// Extra room on the left of every row, so the fills don't run into the window edge.
+    static let leadingRoom: CGFloat = 14
+
+    override func frameOfCell(atColumn column: Int, row: Int) -> NSRect {
+        var frame = super.frameOfCell(atColumn: column, row: row)
+        frame.origin.x += Self.leadingRoom
+        frame.size.width = max(0, frame.width - Self.leadingRoom)
+        return frame
+    }
+
+    override func frameOfOutlineCell(atRow row: Int) -> NSRect {
+        var frame = super.frameOfOutlineCell(atRow: row)
+        frame.origin.x += Self.leadingRoom
+        return frame
+    }
+
+    /// Plain chevrons for folding, tinted by the row (white on a coloured row), instead of the
+    /// system's disclosure triangle, which didn't draw well on the coloured fills.
+    override func makeView(withIdentifier identifier: NSUserInterfaceItemIdentifier, owner: Any?) -> NSView? {
+        let view = super.makeView(withIdentifier: identifier, owner: owner)
+        if identifier == NSOutlineView.disclosureButtonIdentifier, let button = view as? NSButton {
+            let configuration = NSImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
+            button.setButtonType(.toggle)
+            button.isBordered = false
+            button.imagePosition = .imageOnly
+            button.imageScaling = .scaleNone
+            button.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: "Expand")?
+                .withSymbolConfiguration(configuration)
+            button.alternateImage = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: "Collapse")?
+                .withSymbolConfiguration(configuration)
+            if button.contentTintColor == nil { button.contentTintColor = .secondaryLabelColor }
+        }
+        return view
+    }
 
     override func keyDown(with event: NSEvent) {
         let deleteKeys = [Character(UnicodeScalar(NSDeleteCharacter)!), Character(UnicodeScalar(NSDeleteFunctionKey)!)]
-        if let key = event.charactersIgnoringModifiers?.first, deleteKeys.contains(key),
-           event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty {
+        let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        if let key = event.charactersIgnoringModifiers?.first, deleteKeys.contains(key), modifiers.isEmpty {
             onDelete?()
+        } else if let key = event.charactersIgnoringModifiers?.first, deleteKeys.contains(key), modifiers == .command {
+            onCommandDelete?()
         } else {
             super.keyDown(with: event)
         }
@@ -419,6 +490,11 @@ final class SidebarCell: NSTableCellView {
     private let icon = ClickableImageView()
     private let label = NSTextField(labelWithString: "")
     private let badges = IconFanView()
+    /// The Working File's fat arrow, right before the name (SPEC.md §8). No room taken otherwise.
+    private let workingArrow = NSImageView()
+    private var workingArrowWidth: NSLayoutConstraint!
+    private var workingArrowGap: NSLayoutConstraint!
+    private var isWorkingFile = false
 
     /// Called with the clicked view when the icons or the Working File arrow are clicked.
     var onIconsClick: ((NSView) -> Void)? {
@@ -432,6 +508,10 @@ final class SidebarCell: NSTableCellView {
         identifier = Self.identifier
 
         icon.translatesAutoresizingMaskIntoConstraints = false
+        workingArrow.translatesAutoresizingMaskIntoConstraints = false
+        workingArrow.imageScaling = .scaleNone
+        workingArrow.setAccessibilityLabel("Working File")
+        workingArrow.toolTip = "Working File (⌘J jumps here)"
         label.translatesAutoresizingMaskIntoConstraints = false
         label.lineBreakMode = .byTruncatingTail
         label.isEditable = false
@@ -442,14 +522,20 @@ final class SidebarCell: NSTableCellView {
         badges.translatesAutoresizingMaskIntoConstraints = false
         badges.setContentHuggingPriority(.required, for: .horizontal)
         badges.setContentCompressionResistancePriority(.required, for: .horizontal)
+        addSubview(workingArrow)
         addSubview(icon)
         addSubview(label)
         addSubview(badges)
         imageView = icon
         textField = label
 
+        workingArrowWidth = workingArrow.widthAnchor.constraint(equalToConstant: 0)
+        workingArrowGap = icon.leadingAnchor.constraint(equalTo: workingArrow.trailingAnchor, constant: 0)
         NSLayoutConstraint.activate([
-            icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
+            workingArrow.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
+            workingArrow.centerYAnchor.constraint(equalTo: centerYAnchor),
+            workingArrowWidth,
+            workingArrowGap,
             icon.centerYAnchor.constraint(equalTo: centerYAnchor),
             icon.widthAnchor.constraint(equalToConstant: 16),
             icon.heightAnchor.constraint(equalToConstant: 16),
@@ -478,33 +564,40 @@ final class SidebarCell: NSTableCellView {
         return super.validateProposedFirstResponder(responder, for: event)
     }
 
-    private var isWorkingFile = false
+    /// The row is filled with the file's icon colours, so everything on it is white.
+    private var isOnColor = false
 
     func configure(with file: PemeriaFile, icons: [IconDefinition], isWorkingFile: Bool) {
         label.stringValue = file.title
         label.isEditable = false
         self.isWorkingFile = isWorkingFile
-        // The Working File's fat arrow takes the leading spot (SPEC.md §8).
-        if isWorkingFile {
-            icon.image = NSImage(systemSymbolName: "arrowshape.right.fill", accessibilityDescription: "Working File")
-            icon.toolTip = file.kind == .note ? "Working File (a note)" : "Working File"
-        } else {
-            icon.image = file.kind == .note ? NSImage(systemSymbolName: "note.text", accessibilityDescription: "Note") : nil
-            icon.toolTip = nil
-        }
+        workingArrowWidth.constant = isWorkingFile ? 16 : 0
+        workingArrowGap.constant = isWorkingFile ? 2 : 0
+        workingArrow.isHidden = !isWorkingFile
+        icon.image = file.kind == .note ? NSImage(systemSymbolName: "note.text", accessibilityDescription: "Note") : nil
         badges.icons = icons
-        // Only the arrow is clickable; a note icon just selects the row like the rest of it.
-        icon.onClick = isWorkingFile ? { [weak self] in
-            guard let self else { return }
-            self.onIconsClick?(self.badges)
-        } : nil
+        isOnColor = !icons.isEmpty
         updateIconTint()
     }
 
+    /// Set by the row: selected rows are filled with the accent colour.
+    var isRowSelected = false {
+        didSet { if isRowSelected != oldValue { updateIconTint() } }
+    }
+
     private func updateIconTint() {
-        let selected = backgroundStyle == .emphasized
-        badges.isOnSelection = selected
-        icon.contentTintColor = isWorkingFile ? (selected ? .white : Theme.accent) : (selected ? .white : .secondaryLabelColor)
+        // On the accent fill or a label fill, everything is white.
+        let white = isRowSelected || isOnColor
+        badges.isOnSelection = isRowSelected
+        badges.isOnColor = white
+        label.textColor = white ? .white : .labelColor
+        icon.contentTintColor = white ? .white : .secondaryLabelColor
+        if isWorkingFile {
+            // Accent coloured on a plain row; white on the accent or a label colour.
+            let color: NSColor = white ? .white : Theme.accent
+            workingArrow.image = NSImage(systemSymbolName: "arrowshape.right.fill", accessibilityDescription: "Working File")?
+                .withSymbolConfiguration(.init(pointSize: 12, weight: .bold).applying(.init(paletteColors: [color])))
+        }
     }
 }
 
@@ -517,13 +610,13 @@ final class IconFanView: NSView {
             guard icons != oldValue else { return }
             invalidateIntrinsicContentSize()
             needsDisplay = true
-            toolTip = icons.isEmpty ? "Add Icons" : icons.map(\.name).joined(separator: ", ")
+            toolTip = icons.isEmpty ? "Add Labels" : icons.map(\.name).joined(separator: ", ")
         }
     }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        toolTip = "Add Icons"
+        toolTip = "Add Labels"
     }
 
     required init?(coder: NSCoder) {
@@ -532,6 +625,11 @@ final class IconFanView: NSView {
 
     var isOnSelection = false {
         didSet { if isOnSelection != oldValue { needsDisplay = true } }
+    }
+
+    /// On a row filled with the icons' colours: each icon is drawn in white, with no halo.
+    var isOnColor = false {
+        didSet { if isOnColor != oldValue { needsDisplay = true } }
     }
 
     var onClick: (() -> Void)?
@@ -567,8 +665,8 @@ final class IconFanView: NSView {
         default: [-10, 0, 10]
         }
         for (index, definition) in icons.enumerated() {
-            guard let image = IconSymbol.image(for: definition, pointSize: 11) else { continue }
-            let halo = isOnSelection ? IconSymbol.image(for: definition, pointSize: 11, color: .white) : nil
+            guard let image = IconSymbol.image(for: definition, pointSize: 11, color: isOnColor ? .white : nil) else { continue }
+            let halo = isOnSelection && !isOnColor ? IconSymbol.image(for: definition, pointSize: 11, color: .white) : nil
             let center = CGPoint(x: 2 + Self.size / 2 + CGFloat(index) * Self.step, y: bounds.midY)
             context.saveGState()
             context.translateBy(x: center.x, y: center.y)
@@ -603,12 +701,126 @@ enum IconSymbol {
     }
 }
 
-/// Draws the selection in Pemeria's coral rather than the system accent.
+/// A file with icons has its row filled with their colours, side by side in equal vertical bands
+/// (SPEC.md §4). A selected row is filled with the accent colour instead, like any Mac list, and
+/// keeps its label colours as a stripe down its left edge. Selected rows next to each other join.
 final class SidebarRowView: NSTableRowView {
-    override func drawSelection(in dirtyRect: NSRect) {
-        let color = isEmphasized ? Theme.accent : NSColor.unemphasizedSelectedContentBackgroundColor
-        color.setFill()
-        NSBezierPath(roundedRect: bounds.insetBy(dx: 10, dy: 1), xRadius: 6, yRadius: 6).fill()
+    var fillColors: [NSColor] = [] {
+        didSet {
+            guard fillColors != oldValue else { return }
+            updateDisclosureTint()
+            needsDisplay = true
+        }
+    }
+
+    override var isSelected: Bool {
+        didSet {
+            guard isSelected != oldValue else { return }
+            updateDisclosureTint()
+            updateCellSelection()
+            needsDisplay = true
+        }
+    }
+
+    private func updateCellSelection() {
+        for column in 0..<numberOfColumns {
+            (view(atColumn: column) as? SidebarCell)?.isRowSelected = isSelected
+        }
+    }
+
+    override var isPreviousRowSelected: Bool {
+        didSet { if isPreviousRowSelected != oldValue { needsDisplay = true } }
+    }
+
+    override var isNextRowSelected: Bool {
+        didSet { if isNextRowSelected != oldValue { needsDisplay = true } }
+    }
+
+
+    override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        updateDisclosureTint()
+        updateCellSelection()
+        needsDisplay = true
+    }
+
+    override func layout() {
+        super.layout()
+        needsDisplay = true
+    }
+
+    private var disclosureButton: NSButton? {
+        subviews.first { $0.identifier == NSOutlineView.disclosureButtonIdentifier && !$0.isHidden } as? NSButton
+    }
+
+    /// The fold chevron matches the text: white on a coloured or selected row.
+    private func updateDisclosureTint() {
+        disclosureButton?.contentTintColor = fillColors.isEmpty && !isSelected ? .secondaryLabelColor : .white
+    }
+
+    /// Width of the fold chevron's slot before each row's content. Rows without children keep
+    /// the slot too, so every row at one level starts its fill in the same place.
+    private static let chevronSlot: CGFloat = 13
+
+    /// The fill sits around the row's content (and its fold chevron's slot), so it steps in with
+    /// each level of nesting.
+    private var pillRect: NSRect {
+        let cell = view(atColumn: 0) as? NSView
+        let start = (cell?.frame.minX ?? bounds.minX + 39) - Self.chevronSlot - 6
+        let end = min(bounds.maxX - 8, (cell?.frame.maxX ?? bounds.maxX) + 2)
+        return NSRect(x: start, y: bounds.minY + 1, width: max(0, end - start), height: bounds.height - 2)
+    }
+
+    /// Width of the label stripe down a selected row's left edge.
+    private static let stripeWidth: CGFloat = 6
+
+    override func drawBackground(in dirtyRect: NSRect) {
+        super.drawBackground(in: dirtyRect)
+        updateDisclosureTint()
+        let rect = pillRect
+        if isSelected {
+            drawSelectedFill(in: rect)
+        } else if !fillColors.isEmpty {
+            NSGraphicsContext.saveGraphicsState()
+            NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).addClip()
+            let width = rect.width / CGFloat(fillColors.count)
+            for (index, color) in fillColors.enumerated() {
+                color.setFill()
+                // A hair of overlap so no seam shows between bands.
+                NSRect(x: rect.minX + CGFloat(index) * width, y: rect.minY, width: width + 0.5, height: rect.height).fill()
+            }
+            NSGraphicsContext.restoreGraphicsState()
+        }
+    }
+
+    /// Drawn here rather than in `drawSelection`, which a highlight style of `.none` never calls.
+    /// The accent fill runs on into a selected neighbour, so a run of selected rows is one block;
+    /// the label colours sit in a stripe down the left edge, stacked top to bottom.
+    private func drawSelectedFill(in pill: NSRect) {
+        // Run on past the row's edge towards a selected neighbour; the row clips it square there,
+        // so it meets the neighbour's fill seamlessly.
+        let overhang: CGFloat = 8
+        var rect = pill
+        if isPreviousRowSelected {
+            rect.size.height += rect.minY - bounds.minY + overhang
+            rect.origin.y = bounds.minY - overhang
+        }
+        if isNextRowSelected { rect.size.height = bounds.maxY + overhang - rect.minY }
+        NSGraphicsContext.saveGraphicsState()
+        NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).addClip()
+        Theme.accent.setFill()
+        rect.fill()
+        if !fillColors.isEmpty {
+            // The stripe is this row's own, so it keeps to the row.
+            let top = max(rect.minY, bounds.minY)
+            let bottom = min(rect.maxY, bounds.maxY)
+            let height = (bottom - top) / CGFloat(fillColors.count)
+            for (index, color) in fillColors.enumerated() {
+                color.setFill()
+                NSRect(x: rect.minX, y: top + CGFloat(index) * height, width: Self.stripeWidth, height: height + 0.5).fill()
+            }
+        }
+        NSGraphicsContext.restoreGraphicsState()
     }
 }
 

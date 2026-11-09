@@ -137,7 +137,7 @@ struct SearchPanel: View {
 
             if results.isEmpty {
                 Text(terms.isEmpty
-                     ? "Search file names, drafts, outlines, notes, comments and bookmarks.\n\nMira + Kate finds paragraphs with both."
+                     ? "Search file names, drafts, outlines, notes, comments and bookmarks."
                      : "No matches")
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -276,13 +276,14 @@ private struct Chip: View {
     }
 }
 
-/// "In: Whole Project ▾": the whole project, the selected files, or files with an icon.
+/// "In: Whole Project ▾": the whole project, just the notes, the selected files, or files with an icon.
 private struct ScopeMenu: View {
     let model: ProjectModel
 
     var body: some View {
         Menu {
             Button("Whole Project") { model.searchScope = .project }
+            Button("Just Notes") { model.searchScope = .notes }
             Button("Selected Files") { model.scopeSearchToSelection() }
                 .disabled(model.selection.isEmpty)
             let icons = model.project.manifest.icons
@@ -309,6 +310,7 @@ private struct ScopeMenu: View {
     private var label: String {
         switch model.searchScope {
         case .project: return "Whole Project"
+        case .notes: return "Just Notes"
         case .files(let ids):
             let count = ids.filter { model.project.files[$0] != nil }.count
             return count == 1 ? "1 File" : "\(count) Files"

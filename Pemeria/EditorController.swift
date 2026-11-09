@@ -23,13 +23,18 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
     private var pieces: [EditorContent.Piece] = []
     /// The model's `contentToken` when this text was loaded; a newer one means reload.
     private var loadedToken = -1
+    /// True while reloading because this editor is taking focus (see didBecomeFirstResponder).
+    private var isTakingFocus = false
+    /// The model's text version of each part shown, as loaded or last saved from here.
+    private var loadedVersions: [TextPart: Int] = [:]
     private var handledJumpID = -1
     private var handledFocusRequest: Int?
     /// Files whose header copy icon is showing a checkmark for a moment.
     private var recentlyCopied: Set<FileID> = []
-    /// True while removing a bookmark on purpose, so the step-over-bookmarks rule lets it through.
-    private var isDeletingBookmark = false
     private var dirty: Set<FileID> = []
+    /// Each segment's comments and bookmarks, worked out from its whole text (they can span
+    /// lines). Dropped whenever that segment's text changes.
+    private var annotationCache: [Int: SegmentAnnotations] = [:]
     private var saveTimer: Timer?
     /// True while replacing the whole text or refreshing display, so storage callbacks ignore it.
     private var isQuiet = false
@@ -120,11 +125,21 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
 
         let selected = Set(model.selection(forPane: pane))
         let files = model.project.tree.bookOrder.filter(selected.contains).compactMap { model.project.files[$0] }
-        let key = files.map { ShownFile(id: $0.id, kind: $0.kind) }
-        if key != shown || mode != self.mode || model.contentToken != loadedToken {
+        let key = files.map { ShownFile(id: $0.id, kind: $0.kind, indents: $0.indents) }
+        // Text another editor has saved since this one loaded it (the other pane of a split
+        // showing the same file). Reloaded unless there's typing here not yet saved, which can't
+        // really happen: focusing an editor first saves the others (didBecomeFirstResponder).
+        let changedElsewhere = dirty.isEmpty && loadedVersions.contains { model.textVersion(of: $0.key) != $0.value }
+        if key != shown || mode != self.mode || model.contentToken != loadedToken || changedElsewhere {
+            // Same files, shown the same way or with the outline pinned/unpinned: hold your place
+            // in the text rather than jumping back to the last saved cursor.
+            let showsDraftText: Set<EditorMode> = [.full, .bodies]
+            let keepsPlace = key.map(\.id) == shown.map(\.id) && !shown.isEmpty
+                && (mode == self.mode || (showsDraftText.contains(mode) && showsDraftText.contains(self.mode)))
+            let place = keepsPlace ? currentPlace() : nil
             self.mode = mode
             loadedToken = model.contentToken
-            show(files)
+            show(files, keeping: place)
         } else {
             refreshHeaderTitles(files)
         }
@@ -139,7 +154,15 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
 
     /// Clicking into an editor makes its pane the active one.
     func didBecomeFirstResponder() {
-        model?.activate(pane: pane)
+        guard let model else { return }
+        // Save what the other editors are holding, and pick it up here before you type, so two
+        // editors showing the same file never hold different copies of it.
+        model.commitEditors()
+        // A click brought focus here: the cursor goes where it lands, not back to where it was.
+        isTakingFocus = true
+        sync(with: model, mode: mode)
+        isTakingFocus = false
+        model.activate(pane: pane)
     }
 
     /// The main editor takes keyboard focus when asked (e.g. after ⌘J).
@@ -152,22 +175,108 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         }
     }
 
-    private func show(_ files: [PemeriaFile]) {
+    private func show(_ files: [PemeriaFile], keeping place: Place? = nil) {
         // Edits are normally saved before the selection changes; this is the safety net.
         if !dirty.isEmpty { commit(recordingPosition: false) }
         let content = EditorContent(files: files, mode: mode)
         isQuiet = true
         segments = content.segments
+        annotationCache = [:]
         markers = content.markers
         pieces = content.pieces
         textView.textStorage?.setAttributedString(content.text)
         isQuiet = false
-        shown = files.map { ShownFile(id: $0.id, kind: $0.kind) }
+        shown = files.map { ShownFile(id: $0.id, kind: $0.kind, indents: $0.indents) }
+        loadedVersions = [:]
+        if let model {
+            for segment in segments {
+                let part = TextPart(fileID: segment.fileID, inOutline: segment.role == .outline)
+                loadedVersions[part] = model.textVersion(of: part)
+            }
+        }
         textView.isEditable = mode != .reading
         textView.undoManager?.removeAllActions()
         textView.setSelectedRange(NSRange(location: segments.first?.range.location ?? 0, length: 0))
         resetTypingAttributes()
-        DispatchQueue.main.async { [weak self] in self?.restorePosition() }
+        let restoresCursor = !isTakingFocus
+        DispatchQueue.main.async { [weak self] in
+            if let place { self?.restore(place, cursor: restoresCursor) } else { self?.restorePosition() }
+        }
+    }
+
+    // MARK: Holding your place across a reload
+
+    /// Where the view is: the paragraph at the top of the window and how far down it is
+    /// scrolled, plus the cursor, each relative to its file's text rather than the whole editor.
+    struct Place {
+        var topFile: FileID
+        var topRole: EditorSegment.Role
+        var topParagraph: Int
+        var topOffset: CGFloat
+        var cursor: (file: FileID, role: EditorSegment.Role, offset: Int, length: Int)?
+    }
+
+    private func currentPlace() -> Place? {
+        guard let storage = textView.textStorage, let layout = textView.textLayoutManager,
+              let content = textView.textContentStorage else { return nil }
+        let visible = textView.visibleRect
+        let origin = textView.textContainerOrigin
+        guard let fragment = layout.textLayoutFragment(for: CGPoint(x: 1, y: max(0, visible.minY - origin.y))) else { return nil }
+        let location = content.offset(from: content.documentRange.location, to: fragment.rangeInElement.location)
+        // A header or divider line belongs with the text after it.
+        let segment = segments.first { NSLocationInRange(location, $0.range) || location == NSMaxRange($0.range) }
+            ?? segments.first { $0.range.location >= location }
+        guard let segment else { return nil }
+        let string = storage.string as NSString
+        let clamped = min(max(location, segment.range.location), NSMaxRange(segment.range))
+        let before = NSRange(location: segment.range.location, length: clamped - segment.range.location)
+        let paragraph = string.substring(with: before).reduce(0) { $1 == "\n" ? $0 + 1 : $0 }
+        let paragraphStart = paragraphStart(paragraph, in: segment)
+        let top = caretRect(at: paragraphStart)?.minY ?? visible.minY
+        var place = Place(topFile: segment.fileID, topRole: segment.role, topParagraph: paragraph, topOffset: visible.minY - top)
+        let selection = textView.selectedRange()
+        if let cursorSegment = segments.first(where: { $0.contains(selection) }) {
+            place.cursor = (cursorSegment.fileID, cursorSegment.role, selection.location - cursorSegment.range.location, selection.length)
+        }
+        return place
+    }
+
+    /// Where paragraph `index` of a segment starts (its last paragraph if there are fewer).
+    private func paragraphStart(_ index: Int, in segment: EditorSegment) -> Int {
+        guard let storage = textView.textStorage else { return segment.range.location }
+        let string = storage.string as NSString
+        let end = NSMaxRange(segment.range)
+        var start = segment.range.location
+        for _ in 0..<index {
+            let next = string.range(of: "\n", options: .literal, range: NSRange(location: start, length: end - start))
+            guard next.location != NSNotFound else { break }
+            start = next.location + 1
+        }
+        return start
+    }
+
+    private func restore(_ place: Place, cursor restoresCursor: Bool = true) {
+        if restoresCursor, let cursor = place.cursor,
+           let segment = segments.first(where: { $0.fileID == cursor.file && $0.role == cursor.role }) {
+            let location = segment.range.location + min(cursor.offset, segment.range.length)
+            textView.setSelectedRange(NSRange(location: location, length: min(cursor.length, NSMaxRange(segment.range) - location)))
+        }
+        // If the top paragraph's part has gone (an outline, now pinned), hold on to the end of the
+        // file's text just above it instead.
+        let target: Int
+        let offset: CGFloat
+        if let segment = segments.first(where: { $0.fileID == place.topFile && $0.role == place.topRole }) {
+            target = paragraphStart(place.topParagraph, in: segment)
+            offset = place.topOffset
+        } else if let segment = segments.last(where: { $0.fileID == place.topFile }) {
+            target = paragraphStart(.max, in: segment)
+            offset = 0
+        } else {
+            return
+        }
+        if let rect = caretRect(at: target) {
+            textView.scroll(NSPoint(x: 0, y: max(0, rect.minY + offset)))
+        }
     }
 
     private func refreshHeaderTitles(_ files: [PemeriaFile]) {
@@ -210,41 +319,7 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
             flashBlocked()
             return false
         }
-        // Backspace/Delete next to a bookmark deletes the character beyond it, not the bookmark:
-        // bookmarks are only removed on purpose (from the margin popup or the panel).
-        if !isDeletingBookmark, affectedRanges.count == 1, replacementStrings?.first == "",
-           let beyond = deletionSteppingOverBookmarks(affectedRanges[0].rangeValue) {
-            DispatchQueue.main.async { [weak self] in self?.delete(beyond) }
-            return false
-        }
         return true
-    }
-
-    private func isBookmark(at index: Int) -> Bool {
-        guard let storage = textView.textStorage, index >= 0, index < storage.length else { return false }
-        return storage.attribute(.pemeriaBookmark, at: index, effectiveRange: nil) != nil
-    }
-
-    /// For a one-character deletion that would hit only bookmark characters, the character
-    /// just past them in the direction of the deletion (nil if the deletion is fine as it is).
-    private func deletionSteppingOverBookmarks(_ range: NSRange) -> NSRange? {
-        guard range.length >= 1, (range.location..<NSMaxRange(range)).allSatisfy(isBookmark(at:)),
-              let segment = segments.first(where: { $0.contains(range) }) else { return nil }
-        let cursor = textView.selectedRange().location
-        let backward = cursor >= NSMaxRange(range)
-        var index = backward ? range.location - 1 : NSMaxRange(range)
-        while isBookmark(at: index) { index += backward ? -1 : 1 }
-        let next = NSRange(location: index, length: 1)
-        // Nothing left to delete in this file: do nothing (rather than remove the bookmark).
-        return segment.contains(next) ? next : NSRange(location: NSNotFound, length: 0)
-    }
-
-    private func delete(_ range: NSRange) {
-        guard range.location != NSNotFound, let storage = textView.textStorage,
-              NSMaxRange(range) <= storage.length,
-              textView.shouldChangeText(in: range, replacementString: "") else { return }
-        storage.replaceCharacters(in: range, with: "")
-        textView.didChangeText()
     }
 
     func textStorage(_ textStorage: NSTextStorage, didProcessEditing editedMask: NSTextStorageEditActions, range editedRange: NSRange, changeInLength delta: Int) {
@@ -263,6 +338,16 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
             }
         }
         markDirty(segments[index].fileID)
+
+        // A comment spanning lines colours lines other than the edited one, so when what spans
+        // what changes (typing a closing \, say), redraw the whole file's text.
+        if editedMask.contains(.editedCharacters) {
+            let previous = annotationCache.removeValue(forKey: index)
+            DispatchQueue.main.async { [weak self] in
+                guard let self, index < self.segments.count, let current = self.annotations(forSegment: index) else { return }
+                if previous?.spans ?? [] != current.spans { self.refreshDisplay(in: self.segments[index].range) }
+            }
+        }
 
         // Whether a paragraph is the first in its file (and so not indented) can change when a
         // line break is typed or deleted near the top; refresh the opening paragraphs.
@@ -313,6 +398,7 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
             }
         }
         segments = rebuilt
+        annotationCache = [:]
     }
 
     /// Re-runs display styling for a range without changing the text.
@@ -396,7 +482,8 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
                 let part = NSIntersectionRange(range, line)
                 if part.length > 0 {
                     total += WordCount.count(in: NSRange(location: part.location - lineStart, length: part.length),
-                                             ofLine: string.substring(with: line))
+                                             ofLine: string.substring(with: line),
+                                             excluding: annotations(ofLineAt: lineStart)?.annotations.map(\.range))
                 }
                 lineStart = lineEnd + 1
             }
@@ -409,7 +496,6 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
     private func resetTypingAttributes() {
         var attributes = textView.typingAttributes
         attributes[.pemeriaMarker] = nil
-        attributes[.pemeriaBookmark] = nil
         let raw = (attributes[.pemeriaStyle] as? NSNumber)?.uint8Value ?? 0
         let location = textView.selectedRange().location
         let segment = segments.first { $0.contains(NSRange(location: location, length: 0)) }
@@ -421,29 +507,18 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
 
     // MARK: Clicks on margin and marker icons
 
-    /// Handles a click on a bookmark's margin icon, a divider's pin, or a file header's copy icon.
+    /// Handles a click on a divider's pin or a file header's copy icon.
     /// Returns false for any other click.
     func handleClick(at point: NSPoint) -> Bool {
         guard let layout = textView.textLayoutManager else { return false }
         let origin = textView.textContainerOrigin
         let containerPoint = CGPoint(x: point.x - origin.x, y: point.y - origin.y)
-        // Look up the line by height alone: margin clicks are outside the text column.
-        if let fragment = layout.textLayoutFragment(for: CGPoint(x: 1, y: containerPoint.y)) as? BookmarkedParagraphFragment {
-            let frameOrigin = fragment.layoutFragmentFrame.origin
-            if let mark = fragment.marks().first(where: {
-                $0.clickRect.offsetBy(dx: frameOrigin.x, dy: frameOrigin.y).insetBy(dx: -4, dy: -4).contains(containerPoint)
-            }) {
-                let icon = mark.iconRect.offsetBy(dx: frameOrigin.x + origin.x, dy: frameOrigin.y + origin.y)
-                showBookmarkEditor(for: mark.bookmark, iconRect: icon)
-                return true
-            }
-        }
         guard let fragment = layout.textLayoutFragment(for: containerPoint) as? MarkerFragment,
               let target = fragment.buttonRect?.offsetBy(dx: fragment.layoutFragmentFrame.minX, dy: fragment.layoutFragmentFrame.minY),
               target.insetBy(dx: -6, dy: -6).contains(containerPoint) else { return false }
         switch fragment.kind {
         case .outlineDivider:
-            model?.outlinePinned = true
+            model?.setOutlinePinned(true, pane: pane)
         case .fileHeader(let fileID, _, _):
             copyDraftText(of: fileID)
         }
@@ -469,72 +544,123 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
 
     // MARK: Bookmarks and comments
 
-    /// ⌘D: asks for a name, then bookmarks the cursor's exact spot (SPEC.md §7).
-    func beginAddingBookmark() {
-        guard textView.isEditable, let storage = textView.textStorage else { NSSound.beep(); return }
-        let location = textView.selectedRange().location
-        guard segments.contains(where: { $0.contains(NSRange(location: location, length: 0)) }) else { NSSound.beep(); return }
-        let string = storage.string as NSString
-        let line = string.lineRange(for: NSRange(location: location, length: 0))
-        // Words from the cursor on, for a name if none is typed.
-        let following = string.substring(with: NSRange(location: location, length: NSMaxRange(line) - location))
-        let fallback = following.split(whereSeparator: \.isWhitespace).prefix(4).joined(separator: " ")
-
-        var anchor = caretRect(at: location) ?? NSRect(x: textView.textContainerOrigin.x, y: textView.visibleRect.midY, width: 1, height: 20)
-        anchor = anchor.intersection(textView.visibleRect).isNull ? NSRect(x: anchor.minX, y: textView.visibleRect.midY, width: 1, height: 20) : anchor
-        // Open below the cursor, or above it when the cursor is in the lower half of the window.
-        let edge: NSRectEdge = anchor.midY > textView.visibleRect.midY ? .minY : .maxY
-        BookmarkNamePrompt.show(relativeTo: anchor, of: textView, preferredEdge: edge) { [weak self] name in
-            guard let self else { return }
-            self.insertBookmark(named: name.isEmpty ? (fallback.isEmpty ? "Bookmark" : fallback) : name, at: location)
-            self.textView.window?.makeFirstResponder(self.textView)
-        }
+    /// ⌘D: starts a `#` bookmark at the cursor (SPEC.md §7).
+    func insertBookmark() {
+        insertOpener("#")
     }
 
-    private func insertBookmark(named name: String, at location: Int) {
-        guard let storage = textView.textStorage else { return }
-        var taken = model?.project.bookmarkIDs ?? []
-        storage.enumerateAttribute(.pemeriaBookmark, in: NSRange(location: 0, length: storage.length)) { value, _, _ in
-            if let marker = value as? BookmarkMarker { taken.insert(marker.bookmark.id) }
-        }
-        let bookmark = Bookmark(id: Bookmark.generateID(avoiding: taken), name: name)
-        let tag = TextBridge.marker(for: bookmark)
-        let range = NSRange(location: location, length: 0)
-        guard textView.shouldChangeText(in: range, replacementString: tag.string) else { return }
-        storage.replaceCharacters(in: range, with: tag)
-        textView.didChangeText()
-        textView.setSelectedRange(NSRange(location: location + 1, length: 0))
-    }
-
-    private func bookmarkRange(id: String) -> NSRange? {
-        guard let storage = textView.textStorage else { return nil }
-        var found: NSRange?
-        storage.enumerateAttribute(.pemeriaBookmark, in: NSRange(location: 0, length: storage.length)) { value, range, stop in
-            if (value as? BookmarkMarker)?.bookmark.id == id {
-                found = NSRange(location: range.location, length: 1)
-                stop.pointee = true
-            }
-        }
-        return found
-    }
-
-    /// Removes a bookmark (undoable, like any edit).
-    private func deleteBookmark(id: String) {
-        isDeletingBookmark = true
-        defer { isDeletingBookmark = false }
-        guard textView.isEditable, let storage = textView.textStorage, let range = bookmarkRange(id: id),
-              textView.shouldChangeText(in: range, replacementString: "") else { return }
-        storage.replaceCharacters(in: range, with: "")
-        textView.didChangeText()
-    }
-
-    /// Starts a `//` comment at the cursor.
+    /// ⌘/: starts a `//` comment at the cursor.
     func insertComment() {
+        insertOpener("//")
+    }
+
+    /// Types `opener` and a space at the start of the selection, with a space before it if the
+    /// character before isn't one already (a comment or bookmark only starts after whitespace).
+    private func insertOpener(_ opener: String) {
         guard textView.isEditable, let storage = textView.textStorage else { NSSound.beep(); return }
         let location = textView.selectedRange().location
         let string = storage.string as NSString
         let needsSpace = location > 0 && !(Character(UnicodeScalar(string.character(at: location - 1)) ?? " ").isWhitespace)
-        textView.insertText(needsSpace ? " // " : "// ", replacementRange: textView.selectedRange())
+        textView.insertText(needsSpace ? " \(opener) " : "\(opener) ", replacementRange: NSRange(location: location, length: 0))
+    }
+
+    /// ⇧⌘D: marks the comment at the cursor Done (`//x`), or not done again.
+    func toggleCommentDone() {
+        guard textView.isEditable, let storage = textView.textStorage else { NSSound.beep(); return }
+        let cursor = textView.selectedRange().location
+        guard let index = segments.firstIndex(where: { $0.contains(NSRange(location: cursor, length: 0)) }),
+              let map = annotations(forSegment: index) else { NSSound.beep(); return }
+        let segmentStart = segments[index].range.location
+        var line = map.line(containing: cursor - segmentStart)
+        // The comment the cursor is in or just after; failing that, the line's first comment.
+        let inLine = cursor - segmentStart - map.lineStarts[line]
+        let comments = map.lines[line].filter { $0.kind == .comment }
+        guard var comment = comments.first(where: { $0.range.location <= inLine && inLine <= NSMaxRange($0.range) }) ?? comments.first
+        else { NSSound.beep(); return }
+        // On a later line of one spanning lines: its x goes after the // on the line it opens on.
+        while !comment.opensHere, line > 0, let previous = map.lines[line - 1].last {
+            line -= 1
+            comment = previous
+        }
+        let string = storage.string as NSString
+        let mark = segmentStart + map.lineStarts[line] + comment.range.location + 2
+        let after = mark < string.length ? string.character(at: mark) : 0x0A
+        let needsSpace = !comment.isDone && after != 0x0A && after != Comments.closer
+            && !(Character(UnicodeScalar(after) ?? " ").isWhitespace)
+        let range = comment.isDone ? NSRange(location: mark, length: 1) : NSRange(location: mark, length: 0)
+        let replacement = comment.isDone ? "" : (needsSpace ? "x " : "x")
+        guard textView.shouldChangeText(in: range, replacementString: replacement) else { return }
+        let selection = textView.selectedRange()
+        storage.replaceCharacters(in: range, with: replacement)
+        textView.didChangeText()
+        // Keep the cursor on the same character.
+        let delta = (replacement as NSString).length - range.length
+        if selection.location >= mark { textView.setSelectedRange(NSRange(location: max(mark, selection.location + delta), length: 0)) }
+    }
+
+    // MARK: Comments spanning lines
+
+    /// One segment's comments and bookmarks, line by line.
+    struct SegmentAnnotations {
+        /// Where each line starts, from the start of the segment.
+        var lineStarts: [Int]
+        var lines: [[Comments.Annotation]]
+        var length: Int
+
+        /// The lines each comment or bookmark spanning lines covers, with what it is: when this
+        /// changes, lines other than the edited one need redrawing.
+        var spans: [[Int]] {
+            var spans: [[Int]] = []
+            var start: Int?
+            for (index, line) in lines.enumerated() {
+                for part in line {
+                    if part.opensHere, part.continues { start = index }
+                    // The last line of one spanning lines: it didn't open here and stops here.
+                    if !part.opensHere, !part.continues {
+                        spans.append([start ?? 0, index, part.kind == .comment ? 0 : 1, part.isDone ? 1 : 0])
+                        start = nil
+                    }
+                }
+            }
+            return spans
+        }
+
+        /// The line holding `offset` (from the start of the segment).
+        func line(containing offset: Int) -> Int {
+            var low = 0
+            var high = lineStarts.count - 1
+            while low < high {
+                let middle = (low + high + 1) / 2
+                if lineStarts[middle] <= offset { low = middle } else { high = middle - 1 }
+            }
+            return low
+        }
+    }
+
+    private func annotations(forSegment index: Int) -> SegmentAnnotations? {
+        guard let storage = textView.textStorage, segments.indices.contains(index),
+              NSMaxRange(segments[index].range) <= storage.length else { return nil }
+        let range = segments[index].range
+        if let cached = annotationCache[index], cached.length == range.length { return cached }
+        let lines = (storage.string as NSString).substring(with: range).components(separatedBy: "\n")
+        var starts: [Int] = []
+        var offset = 0
+        for line in lines {
+            starts.append(offset)
+            offset += (line as NSString).length + 1
+        }
+        let result = SegmentAnnotations(lineStarts: starts, lines: Comments.annotations(inLines: lines), length: range.length)
+        annotationCache[index] = result
+        return result
+    }
+
+    /// The comments and bookmarks on the line starting at `location`, read with the lines
+    /// around it; nil outside the files' text (header and divider lines).
+    private func annotations(ofLineAt location: Int) -> (lineStart: Int, annotations: [Comments.Annotation])? {
+        guard let index = segments.firstIndex(where: { $0.contains(NSRange(location: location, length: 0)) }),
+              let map = annotations(forSegment: index) else { return nil }
+        let line = map.line(containing: location - segments[index].range.location)
+        return (segments[index].range.location + map.lineStarts[line], map.lines[line])
     }
 
     /// Moves to a comment or bookmark chosen in the right panel, if it's in this editor.
@@ -545,67 +671,33 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         handledJumpID = request.id
         // After any pending reload/position restore.
         DispatchQueue.main.async { [weak self] in
-            self?.jump(to: request.location, bookmarkID: request.bookmarkID)
+            self?.jump(to: request.location)
             if model.jumpRequest?.id == request.id { model.jumpRequest = nil }
         }
     }
 
-    private func jump(to location: TextLocation, bookmarkID: String?) {
+    private func jump(to location: TextLocation) {
         let role: EditorSegment.Role = location.inOutline ? .outline : .body
         guard let storage = textView.textStorage,
               let segment = segments.first(where: { $0.fileID == location.fileID && $0.role == role }) else { return }
-        let target: NSRange
-        if let bookmarkID, let tag = bookmarkRange(id: bookmarkID) {
-            target = NSRange(location: NSMaxRange(tag), length: 0)
-        } else {
-            let string = storage.string as NSString
-            let end = NSMaxRange(segment.range)
-            var lineStart = segment.range.location
-            for _ in 0..<location.paragraph {
-                let next = string.range(of: "\n", options: .literal, range: NSRange(location: lineStart, length: end - lineStart))
-                guard next.location != NSNotFound else { break }
-                lineStart = next.location + 1
-            }
-            // Offsets count the paragraph's own text; step over any bookmark characters.
-            func position(_ offset: Int) -> Int {
-                var index = lineStart
-                var counted = 0
-                while index < end, counted < offset, string.character(at: index) != 0x0A {
-                    if storage.attribute(.pemeriaBookmark, at: index, effectiveRange: nil) == nil { counted += 1 }
-                    index += 1
-                }
-                return index
-            }
-            let start = position(location.range.location)
-            target = NSRange(location: start, length: position(NSMaxRange(location.range)) - start)
+        let string = storage.string as NSString
+        let end = NSMaxRange(segment.range)
+        var lineStart = segment.range.location
+        for _ in 0..<location.paragraph {
+            let next = string.range(of: "\n", options: .literal, range: NSRange(location: lineStart, length: end - lineStart))
+            guard next.location != NSNotFound else { break }
+            lineStart = next.location + 1
         }
+        let lineEnd = string.range(of: "\n", options: .literal, range: NSRange(location: lineStart, length: end - lineStart)).location
+        let lineLength = (lineEnd == NSNotFound ? end : lineEnd) - lineStart
+        let start = lineStart + min(location.range.location, lineLength)
+        let target = NSRange(location: start, length: min(NSMaxRange(location.range), lineLength) - (start - lineStart))
         textView.setSelectedRange(NSRange(location: target.location, length: 0))
         if let rect = caretRect(at: target.location) {
             textView.scroll(NSPoint(x: 0, y: max(0, rect.minY - textView.visibleRect.height / 3)))
         }
         if target.length > 0 { textView.showFindIndicator(for: target) }
         textView.window?.makeFirstResponder(textView)
-    }
-
-    /// Clicking a margin icon: a popup with the full name ready to edit, and a Delete button.
-    private func showBookmarkEditor(for bookmark: Bookmark, iconRect: CGRect) {
-        guard textView.isEditable else { return }
-        let edge: NSRectEdge = iconRect.midY > textView.visibleRect.midY ? .minY : .maxY
-        BookmarkNamePrompt.show(
-            relativeTo: iconRect,
-            of: textView,
-            preferredEdge: edge,
-            initialName: bookmark.name,
-            onDelete: { [weak self] in self?.deleteBookmark(id: bookmark.id) }
-        ) { [weak self] name in
-            guard let self, !name.isEmpty, name != bookmark.name, let storage = self.textView.textStorage,
-                  let range = self.bookmarkRange(id: bookmark.id),
-                  self.textView.shouldChangeText(in: range, replacementString: nil) else { return }
-            var renamed = bookmark
-            renamed.name = name
-            storage.addAttribute(.pemeriaBookmark, value: BookmarkMarker(renamed), range: range)
-            self.textView.didChangeText()
-        }
     }
 
     // MARK: Italic and bold
@@ -690,12 +782,7 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
             copy.append(storage.attributedSubstring(from: value.rangeValue))
         }
 
-        // Remove bookmark tags, then divider lines (the marker character plus its line break), last first.
-        var bookmarkRanges: [NSRange] = []
-        copy.enumerateAttribute(.pemeriaBookmark, in: NSRange(location: 0, length: copy.length)) { value, range, _ in
-            if value != nil { bookmarkRanges.append(range) }
-        }
-        for range in bookmarkRanges.reversed() { copy.deleteCharacters(in: range) }
+        // Remove divider lines (the marker character plus its line break), last first.
         var markerRanges: [NSRange] = []
         copy.enumerateAttribute(.pemeriaMarker, in: NSRange(location: 0, length: copy.length)) { value, range, _ in
             if value != nil { markerRanges.append(range) }
@@ -710,10 +797,8 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
             }
             copy.deleteCharacters(in: removal)
         }
-        for invisible in [TextBridge.markerCharacter, TextBridge.bookmarkCharacter] {
-            copy.mutableString.replaceOccurrences(of: String(invisible), with: "", options: .literal,
-                                                  range: NSRange(location: 0, length: copy.length))
-        }
+        copy.mutableString.replaceOccurrences(of: String(TextBridge.markerCharacter), with: "", options: .literal,
+                                              range: NSRange(location: 0, length: copy.length))
 
         let result = NSMutableAttributedString(string: copy.string, attributes: [.font: font(for: 0)])
         copy.enumerateAttribute(.pemeriaStyle, in: NSRange(location: 0, length: copy.length)) { value, range, _ in
@@ -773,9 +858,26 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         display.enumerateAttribute(.pemeriaStyle, in: whole) { value, subrange, _ in
             if let raw = (value as? NSNumber)?.uint8Value { display.addAttribute(.font, value: font(for: raw), range: subrange) }
         }
-        let commentColor = segment?.role == .outline && dimsOutlines ? NSColor.tertiaryLabelColor : NSColor.secondaryLabelColor
-        for comment in Comments.ranges(in: display.string) {
-            display.addAttribute(.foregroundColor, value: commentColor, range: comment)
+        // Comments are quiet; Done ones quieter still, and struck through. Bookmarks are in the
+        // accent colour, since they're for finding your way.
+        let inDimOutline = segment?.role == .outline && dimsOutlines
+        for annotation in annotations(ofLineAt: range.location)?.annotations ?? Comments.annotations(in: display.string) {
+            switch annotation.kind {
+            case .comment where annotation.isDone:
+                display.addAttributes([
+                    .foregroundColor: NSColor.tertiaryLabelColor,
+                    .strikethroughStyle: NSUnderlineStyle.single.rawValue,
+                    .strikethroughColor: NSColor.tertiaryLabelColor,
+                ], range: annotation.range)
+            case .comment:
+                display.addAttribute(.foregroundColor,
+                                     value: inDimOutline ? NSColor.tertiaryLabelColor : NSColor.secondaryLabelColor,
+                                     range: annotation.range)
+            case .bookmark:
+                display.addAttribute(.foregroundColor,
+                                     value: Theme.accent.withAlphaComponent(inDimOutline ? 0.6 : 1),
+                                     range: annotation.range)
+            }
         }
         return NSTextParagraph(attributedString: display)
     }
@@ -790,15 +892,9 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
                 }
                 let fragment = MarkerFragment(textElement: textElement, range: textElement.elementRange, kind: kind)
                 fragment.hasCopyButton = mode != .outlines && mode != .outlineView
+                // Outlines on their own (pinned pane, Outline view) get names but no rule.
+                fragment.hasRule = mode != .outlines && mode != .outlineView
                 return fragment
-            }
-            var bookmarks: [(index: Int, bookmark: Bookmark)] = []
-            line.enumerateAttribute(.pemeriaBookmark, in: NSRange(location: 0, length: line.length)) { value, range, _ in
-                guard let marker = value as? BookmarkMarker else { return }
-                for index in range.location..<NSMaxRange(range) { bookmarks.append((index, marker.bookmark)) }
-            }
-            if !bookmarks.isEmpty {
-                return BookmarkedParagraphFragment(textElement: textElement, range: textElement.elementRange, bookmarks: bookmarks)
             }
         }
         return NSTextLayoutFragment(textElement: textElement, range: textElement.elementRange)
@@ -839,7 +935,8 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
                 .map { TextBridge.blocks(from: storage.attributedSubstring(from: $0.range)) }
             let outline = segments.first { $0.fileID == id && $0.role == .outline }
                 .map { TextBridge.blocks(from: storage.attributedSubstring(from: $0.range), emptyMeansNone: true) }
-            model.updateContent(id, body: body, outline: outline)
+            let saved = model.updateContent(id, body: body, outline: outline, basedOn: loadedVersions)
+            loadedVersions.merge(saved) { _, new in new }
         }
         dirty = []
     }
@@ -847,7 +944,7 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
     // MARK: Remembering your place
 
     /// The cursor's rectangle in text view coordinates, laying out text up to it if needed.
-    /// Measured from the paragraph's own line layout, the same way the margin bookmark icons are placed.
+    /// Measured from the paragraph's own line layout.
     private func caretRect(at location: Int) -> CGRect? {
         guard let layout = textView.textLayoutManager, let content = textView.textContentStorage,
               let target = content.location(content.documentRange.location, offsetBy: location),

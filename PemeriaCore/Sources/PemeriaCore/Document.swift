@@ -184,6 +184,9 @@ public struct PemeriaFile: Hashable, Sendable, Identifiable {
     public var kind: FileKind
     /// Icon ids from the project's icon definitions.
     public var icons: [String]
+    /// First-line indents for this file's text, chosen with the header's indent button.
+    /// nil follows the kind: drafts are indented, notes aren't.
+    public var indent: Bool?
     public var body: [Block]
     /// nil when the file has no outline section at all. Notes keep a draft's outline
     /// here (hidden) so converting back and forth never loses it.
@@ -197,6 +200,7 @@ public struct PemeriaFile: Hashable, Sendable, Identifiable {
         order: String,
         kind: FileKind = .draft,
         icons: [String] = [],
+        indent: Bool? = nil,
         body: [Block] = [.paragraph(Paragraph(runs: []))],
         outline: [Block]? = [],
         extraFields: [ExtraField] = []
@@ -207,10 +211,14 @@ public struct PemeriaFile: Hashable, Sendable, Identifiable {
         self.order = order
         self.kind = kind
         self.icons = icons
+        self.indent = indent
         self.body = body
         self.outline = outline
         self.extraFields = extraFields
     }
+
+    /// Whether the file's text gets book-style first-line indents.
+    public var indents: Bool { indent ?? (kind == .draft) }
 
     /// The form this file takes after a save and reload. Saving never changes any
     /// characters of the prose; it only tidies styles and anything that can't fit on one line.

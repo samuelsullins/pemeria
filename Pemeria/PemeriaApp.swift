@@ -18,7 +18,7 @@ struct PemeriaApp: App {
     var body: some Scene {
         Window("Pemeria", id: "main") {
             RootView(app: .shared)
-                .frame(minWidth: 720, minHeight: 460)
+                .frame(minWidth: 760, minHeight: 460)
         }
         .commands { PemeriaCommands(app: .shared) }
 
@@ -87,12 +87,21 @@ struct PemeriaCommands: Commands {
                 .disabled(app.project == nil)
         }
 
+        // Always saved anyway (SPEC.md §11); ⌘S writes anything still waiting and says so.
+        CommandGroup(replacing: .saveItem) {
+            Button("Save") { app.project?.saveNow() }
+                .keyboardShortcut("s")
+                .disabled(app.project == nil)
+        }
+
         CommandGroup(after: .pasteboard) {
             Divider()
-            Button("Add Bookmark…") { NSApp.sendAction(#selector(EditorTextView.addBookmark(_:)), to: nil, from: nil) }
+            Button("Insert Bookmark") { NSApp.sendAction(#selector(EditorTextView.insertBookmark(_:)), to: nil, from: nil) }
                 .keyboardShortcut("d")
             Button("Insert Comment") { NSApp.sendAction(#selector(EditorTextView.insertComment(_:)), to: nil, from: nil) }
                 .keyboardShortcut("/")
+            Button("Mark Comment Done") { NSApp.sendAction(#selector(EditorTextView.toggleCommentDone(_:)), to: nil, from: nil) }
+                .keyboardShortcut("d", modifiers: [.command, .shift])
         }
 
         CommandGroup(after: .sidebar) {
@@ -115,8 +124,8 @@ struct PemeriaCommands: Commands {
             }
             .keyboardShortcut("\\")
             .disabled(app.project == nil)
-            Button(app.project?.outlinePinned == true ? "Unpin Outline" : "Pin Outline") {
-                if let project = app.project { project.outlinePinned.toggle() }
+            Button(app.project.map { $0.isOutlinePinned(pane: $0.activePane) } == true ? "Unpin Outline" : "Pin Outline") {
+                if let project = app.project { project.setOutlinePinned(!project.isOutlinePinned(pane: project.activePane)) }
             }
             .keyboardShortcut("o", modifiers: [.command, .option])
             .disabled(app.project == nil)

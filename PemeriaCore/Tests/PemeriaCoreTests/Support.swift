@@ -21,7 +21,7 @@ struct SeededGenerator: RandomNumberGenerator {
 let trickyPieces: [String] = [
     "a", "b", "word", " ", " ", "  ", "\t", "*", "**", "\\", "<", "!", "-", "<!--", "-->",
     "---", ":", ",", "_", "é", "e\u{301}", "\u{301}", "🙂", "👩‍👩‍👧", "“", "”", "’", "—", "…",
-    "<!-- outline -->", "<!-- bookmark ab12: x -->", "//", " // note.",
+    "<!-- outline -->", "<!-- bookmark ab12: x -->", "//", " // note.", "#", " # mark\\", "//x ",
 ]
 
 let allStyles: [InlineStyle] = [[], .italic, .bold, [.italic, .bold]]

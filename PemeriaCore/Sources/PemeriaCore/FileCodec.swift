@@ -19,7 +19,7 @@ import Foundation
 ///
 /// Decoding never fails: anything unexpected is read as prose rather than thrown away.
 public enum FileCodec {
-    static let knownKeys: Set<String> = ["id", "title", "parent", "order", "kind", "icons"]
+    static let knownKeys: Set<String> = ["id", "title", "parent", "order", "kind", "icons", "indent"]
     static let frontMatterFence = "---"
     static let outlineDivider = "<!-- outline -->"
     static let bookmarkPrefix = "<!-- bookmark "
@@ -34,6 +34,8 @@ public enum FileCodec {
         lines.append(field("order", file.order))
         lines.append(field("kind", file.kind.rawValue))
         lines.append(field("icons", file.icons.joined(separator: ", ")))
+        // Only written once chosen, so files that never touched it are unchanged.
+        if let indent = file.indent { lines.append(field("indent", indent ? "yes" : "no")) }
         lines += file.extraFields.map { field($0.key, $0.value) }
         lines.append(frontMatterFence)
         lines += file.body.map(encode)
@@ -65,6 +67,12 @@ public enum FileCodec {
                 case "parent": file.parent = FileID(value)
                 case "order": file.order = value
                 case "kind": file.kind = FileKind(rawValue: value) ?? .draft
+                case "indent":
+                    switch value.lowercased() {
+                    case "yes", "true": file.indent = true
+                    case "no", "false": file.indent = false
+                    default: file.extraFields.append(ExtraField(key: key, value: value))
+                    }
                 case "icons":
                     file.icons = value.split(separator: ",")
                         .map { $0.trimmingCharacters(in: .whitespaces) }

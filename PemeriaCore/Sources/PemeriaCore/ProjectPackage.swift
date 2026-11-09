@@ -56,7 +56,10 @@ public struct ProjectPackage: Sendable {
 
     /// Loads the whole project. Repairs it as needed: a duplicate or invalid id gets a fresh
     /// id and its file is renamed to match (the new file is written before the old one is removed).
-    public func load() throws -> Loaded {
+    ///
+    /// With `repairing` false nothing is written: the same repairs are made in memory only, for
+    /// read-only viewers (the iPhone app) that must never change a project the Mac owns.
+    public func load(repairing: Bool = true) throws -> Loaded {
         let fileManager = FileManager.default
         var problems: [String] = []
 
@@ -66,11 +69,19 @@ public struct ProjectPackage: Sendable {
         } else {
             let name = url.deletingPathExtension().lastPathComponent
             manifest = ProjectManifest(name: name)
-            try writeManifest(manifest)
-            problems.append("project.json was missing; created a new one.")
+            if repairing {
+                try writeManifest(manifest)
+                problems.append("project.json was missing; created a new one.")
+            } else {
+                problems.append("project.json is missing.")
+            }
         }
 
-        try fileManager.createDirectory(at: filesURL, withIntermediateDirectories: true)
+        if repairing {
+            try fileManager.createDirectory(at: filesURL, withIntermediateDirectories: true)
+        } else if !fileManager.fileExists(atPath: filesURL.path) {
+            return Loaded(manifest: manifest, files: [:], problems: problems + ["The files folder is missing."])
+        }
         let entries = try fileManager
             .contentsOfDirectory(at: filesURL, includingPropertiesForKeys: nil)
             .filter { $0.pathExtension == "md" }
@@ -100,10 +111,14 @@ public struct ProjectPackage: Sendable {
             if files[file.id] != nil || fileManager.fileExists(atPath: fileURL(for: file.id).path) {
                 file.id = FileID.generate(avoiding: Array(files.keys) + misnamed.map(\.file.id))
             }
-            try write(file)
-            try fileManager.removeItem(at: source)
+            if repairing {
+                try write(file)
+                try fileManager.removeItem(at: source)
+                problems.append("\(source.lastPathComponent) was renamed to \(file.id.rawValue).md to match its id.")
+            } else {
+                problems.append("\(source.lastPathComponent) doesn't match its id; shown as \(file.id.rawValue).")
+            }
             files[file.id] = file
-            problems.append("\(source.lastPathComponent) was renamed to \(file.id.rawValue).md to match its id.")
         }
 
         return Loaded(manifest: manifest, files: files, problems: problems)

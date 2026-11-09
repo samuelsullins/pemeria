@@ -9,8 +9,7 @@ struct SearchTests {
         let n = project.createFile(kind: .note, title: "Lamp notes", after: a.id)
         _ = project.setContent(a.id, body: [
             .paragraph(Paragraph("The lamp was dark. // brighter lamp?")),
-            .bookmark(Bookmark(id: "bm01", name: "Lamp goes out", offset: 4)),
-            .paragraph(Paragraph(runs: [Run("A "), Run("lámp", .italic), Run(" again.")])),
+            .paragraph(Paragraph(runs: [Run("# Lamp goes out\\ A "), Run("lámp", .italic), Run(" again.")])),
         ], outline: [.paragraph(Paragraph("Lamp scene"))])
         _ = project.setContent(n.id, body: [.paragraph(Paragraph("Research: LAMP oil"))], outline: nil)
         return (project, a.id, n.id)
@@ -22,10 +21,10 @@ struct SearchTests {
         #expect(results.map(\.kind) == [.fileName, .draft, .draft, .note, .outline, .comment, .bookmark])
         #expect(results[0].fileID == n)
         #expect(results[1].location == TextLocation(fileID: a, inOutline: false, paragraph: 0, range: NSRange(location: 4, length: 4)))
-        // Accents and case are ignored; paragraph index skips the bookmark.
+        // Accents and case are ignored.
         #expect(results[2].location?.paragraph == 1)
         #expect(results[4].location?.inOutline == true)
-        #expect(results[6].bookmarkID == "bm01")
+        #expect(results[6].location == TextLocation(fileID: a, inOutline: false, paragraph: 1, range: NSRange(location: 2, length: 4)))
         #expect(project.search("  ").isEmpty)
         #expect(project.search("lamp", limit: 1).filter { $0.kind == .draft }.count == 1)
     }
@@ -91,9 +90,7 @@ struct SearchTests {
         var project = Project(manifest: ProjectManifest(name: "x"), files: [:])
         let a = project.createFile(kind: .draft, title: "Bob’s scene")
         _ = project.setContent(a.id, body: [
-            .bookmark(Bookmark(id: "b1", name: "Bob arrives", offset: 0)),
-            .bookmark(Bookmark(id: "b2", name: "end", offset: 19)),
-            .paragraph(Paragraph(runs: [Run("bob and "), Run("Bob", .italic), Run(" and BOB.")])),
+            .paragraph(Paragraph(runs: [Run("# Bob arrives\\ bob and "), Run("Bob", .italic), Run(" and BOB.")])),
         ], outline: [.paragraph(Paragraph("Bob // Bob again."))])
         let results = project.search("bob", options: SearchOptions(wholeWords: true), limit: .max)
         let (changed, count) = project.replace(results, with: "Dave", preservingCase: true)
@@ -102,9 +99,7 @@ struct SearchTests {
         let file = project.files[a.id]!
         #expect(file.title == "Dave’s scene")
         #expect(file.body == [
-            .bookmark(Bookmark(id: "b1", name: "Dave arrives", offset: 0)),
-            .bookmark(Bookmark(id: "b2", name: "end", offset: 22)),
-            .paragraph(Paragraph(runs: [Run("dave and "), Run("Dave", .italic), Run(" and DAVE.")])),
+            .paragraph(Paragraph(runs: [Run("# Dave arrives\\ dave and "), Run("Dave", .italic), Run(" and DAVE.")])),
         ])
         #expect(file.outline == [.paragraph(Paragraph("Dave // Dave again."))])
     }

@@ -14,8 +14,8 @@ Items marked **(assumed)** are choices Claude made that the author hasn't confir
 - Select one or many files; the editor shows them together as one continuous document.
 - Fiction typography: curly quotes, em dashes and first-line indents. Italics and bold.
 - Every draft file has an attached outline.
-- `//` comments, named bookmarks, and one Working File.
-- File icons, defaulting to story beats.
+- `//` comments, `#` bookmarks, and one Working File.
+- File labels (coloured symbols), defaulting to story beats.
 - Notes vs. drafts.
 - Word count.
 - ⌘F search across everything.
@@ -59,21 +59,21 @@ parent: p81xq0
 order: V
 kind: draft
 icons: inciting-incident, crisis
+indent: no
 ---
 The lamp had been dark for *eleven* years.
 She climbed anyway. // Too abrupt? Maybe add a beat here.
-<!-- bookmark b7c1 @10: The storm starts -->
-Rain came sideways off the water — **hard**.
+# The storm starts\\ Rain came sideways off the water — **hard**.
 <!-- outline -->
 Mara reaches the lighthouse. Finds the logbook. Storm hits.
 ```
 
-- **The header** (between the `---` lines) holds the file's details. `parent` is left empty for top-level files. `kind` is `draft` or `note`.
+- **The header** (between the `---` lines) holds the file's details. `parent` is left empty for top-level files. `kind` is `draft` or `note`. `indent` (`yes` or `no`) is only there once the file's indent button has been used (§5); without it, drafts are indented and notes aren't.
 - **Paragraphs:** one line = one paragraph. An empty line is an empty paragraph and is kept exactly as written.
 - **Italics and bold** are stored as `*italic*` and `**bold**`. That's the only Markdown used.
-- **Comments** are stored exactly as typed (see §6).
-- **Bookmarks** are stored as their own `<!-- bookmark id @offset: name -->` line just before the paragraph they're in; `@offset` is where in that paragraph they sit (left out when 0). In the editor they appear inline at that spot.
-- **Bookmarks and the outline divider** are stored as `<!-- … -->` lines. Markdown viewers hide those, so the file stays clean to read.
+- **Comments and bookmarks** are stored exactly as typed (see §6–7), except that the closing `\` is escaped like any backslash, so it's saved as `\\`.
+- **The outline divider** is stored as a `<!-- outline -->` line. Markdown viewers hide it, so the file stays clean to read.
+- **Old bookmarks:** earlier versions stored bookmarks as `<!-- bookmark id @offset: name -->` lines. They're still read (so they never show up as prose) but no longer shown, and they're dropped the next time their file is saved.
 - **Escaping:** if the prose itself contains a literal `*`, `\`, or `<!--`, it's saved with a backslash in front (`\*`), so it's never mistaken for formatting.
 - **Order** uses sortable keys (`V`, `k`, `kV`…). There's always room for a new key between two others, so moving a file only rewrites that one file.
 - **Notes have no outline section.** If a draft is converted to a note, its outline stays saved in the file but hidden. It reappears if the file is switched back to a draft. Nothing is lost.
@@ -114,7 +114,7 @@ Mara reaches the lighthouse. Finds the logbook. Storm hits.
 
 The sidebar and the right panel each toggle on and off. One project is open at a time **(assumed)**; File → Open Recent switches between projects, and the last project reopens on launch.
 
-**Accent colour:** a deep coral (`#BF5F56` in light mode, `#D47469` in dark), taken from Apple's Journal app. It's used for the sidebar selection, the cursor and text selection, bookmarks and buttons, whatever accent colour is chosen in System Settings.
+**Accent colour:** an ocean blue (`#1E6A8D` in light mode, `#4A9CC4` in dark), not the system blue. It's used for the sidebar selection, the cursor and text selection, bookmarks and buttons, whatever accent colour is chosen in System Settings.
 
 ---
 
@@ -124,14 +124,16 @@ The sidebar and the right panel each toggle on and off. One project is open at a
 - **Nesting is for organizing only.** Selecting a parent selects only the parent, not its children.
 - **Selecting:** click selects one file. ⌘-click adds or removes a file. ⇧-click selects a range. The editor shows all selected files in sidebar order.
 - **Rename:** double-click the name, type, then Return.
-- **Notes vs. drafts:** right-click → "Make Note" / "Make Draft". Notes show a note icon and never count toward the draft word count.
-- **File icons:** up to 3 per file. They're drawn slightly overlapping, fanned like playing cards, to save room. Assign them from the right-click menu. Icons are defined per project (name, color, symbol) and you can make as many as you like. The defaults are the five story beats in §2. Each icon is drawn as its symbol in its colour (plain or `.fill` symbols, never the circled kind); on a selected row they get a thin white halo.
-  - **Adding icons:** click a file's icons (or its Working File arrow), in its sidebar row or in the editor header, for a list of every icon with checkmarks, Set/Clear Working File, and **Edit Icons…** at the bottom. A file with no icons shows a faint tag in its place, in the sidebar and the header, so there's something to click. Right-click → **Icons ▸** in the sidebar works on several files at once: choosing an icon adds it to all of them, or removes it if they all have it.
-  - **Editing icons:** the **Icons** pane at the bottom of the sidebar (fold it away with its chevron) shows every icon as a tile. Click a tile for a visual editor: a big preview, the name, colour swatches (plus a custom colour), a grid of symbols, move left/right, and Delete. Changes save straight away. **+** adds an icon. "Edit Icons…" anywhere opens this pane. When any of the five story beats are missing, the pane offers **Add Story Beats** to put them back (existing icons are kept).
-  - Deleting an icon removes it from every file, after asking if any file uses it **(assumed)**.
-- **Working File:** shown with a coral **fat arrow** in front of its name (in place of the note icon, if it's a note). Only one file per project can be the Working File (see §8).
-- **New file:** ⌘N creates a draft below the current selection. ⌥⌘N creates a note **(assumed)**. The **+** button under the file list does the same: click for a draft, hold for a note.
-- **Delete** (Delete key, or right-click → Move to Trash…): asks first, then moves the file to the project's trash (§11). Anything nested inside it goes too, and the confirmation says how many. It is never deleted permanently from here.
+- **Notes vs. drafts:** right-click → "Turn into Note" / "Turn into Draft". Notes show a note icon and never count toward the draft word count.
+- **File labels:** up to 3 per file. A label is a coloured symbol with a name; they're drawn slightly overlapping, fanned like playing cards, to save room. Labels are defined per project (name, colour, symbol) and you can make as many as you like. The defaults are the five story beats in §2. Each is drawn as its symbol in its colour (plain or `.fill` symbols, never the circled kind). *(In the file format and the code they're called icons: `icons:` in each file, `"icons"` in project.json.)*
+  - **Coloured rows:** a file with labels has its sidebar row filled with their colours, split into equal vertical bands (one colour for one label, halves for two, thirds for three, in the file's label order), with the name, label symbols, fold chevron and any note/Working File symbol in white. The fill sits around the row's content and its fold-chevron slot, so it steps in with each level of nesting, and files at the same level line up whether or not they have children.
+  - **Selection** fills the row with the accent colour, like any Mac list, with its text in white. A selected row with labels keeps their colours as a stripe down its left edge (stacked top to bottom), so you can still tell what it is. Selected rows next to each other join into one block.
+  - **Adding labels:** click a file's labels in its sidebar row, or its labels or Working File arrow in the editor header, for a list of every label with checkmarks, Set/Clear Working File, and **Edit Labels…** at the bottom. A file with no labels shows a faint tag in its place, in the sidebar and the header, so there's something to click. Right-click → **Labels ▸** in the sidebar works on several files at once: choosing a label adds it to all of them, or removes it if they all have it.
+  - **Editing labels:** the **Labels** section at the bottom of the sidebar looks like the Comments and Bookmarks sections: a "Labels" heading with **+** and a chevron to fold it away, then every label as a row with its symbol, name and how many files use it. Click a row for a visual editor: a big preview, the name, colour swatches (plus a custom colour), a grid of symbols, move up/down, and Delete. Changes save straight away. **+** adds a label. "Edit Labels…" anywhere opens this section. When any of the five story beats are missing, it offers **Add Story Beats** to put them back (existing labels are kept).
+  - Deleting a label removes it from every file, after asking if any file uses it **(assumed)**.
+- **Working File:** shown with a **fat arrow** right before its name: accent-coloured, or white on a selected or labelled row. Only one file per project can be the Working File (see §8).
+- **New file:** ⌘N creates a draft below the current selection. ⌥⌘N creates a note **(assumed)**. The **Documents** heading at the top of the file list has **New Draft ⌘N** and **New Note ⌥⌘N** buttons that do the same (on a line of their own when the sidebar is narrow).
+- **Delete** (Delete key, or right-click → Move to Trash…): asks first, then moves the file to the project's trash (§11). **⌘⌫** moves it straight to the trash without asking, as in Finder, unless files nested inside it would go too. Anything nested inside it goes too, and the confirmation says how many. It is never deleted permanently from here.
 - **Right-click** acts on the whole selection if you click a selected file, or on just the clicked file otherwise (as in Finder).
 
 ---
@@ -159,6 +161,7 @@ The sidebar and the right panel each toggle on and off. One project is open at a
 - **Curly quotes and apostrophes** are converted as you type, like every Mac app, and stored as real curly characters. Getting these right in every situation (*'em*, *'til*) is later polish; working curly quotes come first.
 - **Em dash:** `--` becomes — as you type.
 - **First-line indent** on every paragraph of draft text. The first paragraph of each file is flush left, following book convention **(assumed)**. Outlines and notes are flush left throughout **(assumed)**. Indents are drawn by the editor; no tabs are stored.
+  - **Per file:** the **No Indent** / **Use Indent** button in the header's left corner (it names what clicking does) turns indents on or off for the shown file (or all shown files), whatever its kind. It's saved in the file (§2) and followed by one-click copy and the iPhone reader.
 - **No spacing between paragraphs** (book style). Spacing is a global setting.
 
 ### Global settings (Preferences, app-wide, never per document)
@@ -169,22 +172,23 @@ Font, size, alignment (justified by default, or left), line height, indent size,
 ## 6. Comments
 
 - **Typing `//` starts a comment.** It must be at the start of a line or after a space, so web addresses like `https://` are never caught.
-- **A comment ends** at the end of the line, or at the first sentence-ending mark (`.` `?` `!` `…`), whichever comes first. The ending mark is part of the comment.
-  - *Known quirk:* "Dr." or "e.g." ends a comment early. You'll see it right away because the rest won't be grayed out.
+- **A comment ends** at the end of the line, or at a backslash `\`, which closes it early so the prose can carry on: `She ran // check timeline\ to the door.` The backslash is part of the comment. Periods and other punctuation never end a comment.
+- **Spanning lines:** a comment with no `\` on its own line carries on through the next lines when a `\` comes later, before any other `//` or `#`; that `\` ends it. So a note can run over several lines, while an ordinary end-of-line comment can never swallow the text after it. The Comments panel shows it as one comment. (A stray `\` typed in prose after an unclosed comment would join them; you'd see the text turn gray.)
+- **Done:** an `x` right after the slashes marks a comment Done: `//x fix the timeline`. Done comments are drawn fainter and struck through. Tick or untick them with the circle beside each one in the Comments panel, or **⇧⌘D** with the cursor in the comment; either just adds or removes the `x`.
 - **Comments are drawn grayed out**, so they're quiet rather than shouting at you.
 - They're ordinary text, so you edit them normally. They travel with the text they sit next to.
 - **Never counted** in word counts. **Never included** in copy.
-- **Comments panel:** lists comments with a snippet each. Click one to jump to it. A filter at the top of the list, below the title bar, switches between **Selected Files** (the default) and **All Files** (the whole project). The **+** button inserts `// ` at the cursor.
+- **Comments panel:** lists comments with a snippet each, and a circle to tick each one Done. A small filter field narrows the list to comments whose words or file name contain what you type. Click one to jump to it. A filter at the top of the list, below the title bar, switches between **Selected Files** (the default) and **All Files** (the whole project). ⌘/ types `// ` at the cursor.
 
 ---
 
 ## 7. Bookmarks
 
-- **⌘D** opens a small name popup at the cursor, Blender-style. Type a name, press Return, done. Esc cancels. The popup opens below the cursor, or above it when the cursor is low in the window. Leaving the name empty names the bookmark after the next few words **(assumed)**.
-- **A bookmark marks an exact spot**, even mid-paragraph or on a blank line. A bookmark icon sits in the left margin beside its line (with the name next to it when the margin has room), and a faint accent tick marks the exact spot in the text. The bookmark moves with the text around it.
-- **Click the margin icon or the name beside it** for a small popup with the full name ready to edit (Return saves) and a **Delete** button. ⌘Z undoes either.
-- **Typing never deletes a bookmark by accident:** Backspace and Delete step over it and remove the character beyond. Deleting a selection that contains a bookmark does remove it.
-- **Bookmarks panel:** lists all bookmarks in the project, in book order **(assumed: always project-wide, since bookmarks are for navigation)**. Click one to jump. Double-click to rename. Right-click to rename or delete. The **+** button does the same as ⌘D.
+- **Bookmarks work just like comments, but start with `#`**: `# The storm starts`. Same rules: at the start of a line or after a space (so `a#b` never counts), running to the end of the line or to a closing `\`, which can be on a later line. They're ordinary text, so you rename, move or delete one by editing it.
+- **Drawn in the accent colour**, so they stand out as places to find again. Like comments, they're never counted, copied or shown in Read mode.
+- **⌘D** types `# ` at the cursor.
+- *Known quirk:* prose like `#1` at the start of a word becomes a bookmark. You'll see it right away because it turns blue.
+- **Bookmarks panel:** lists all bookmarks in the project, in book order **(assumed: always project-wide, since bookmarks are for navigation)**. Click one to jump to it. A small filter field narrows the list, as in the Comments panel.
 
 ---
 
@@ -201,8 +205,8 @@ Font, size, alignment (justified by default, or left), line height, indent size,
 
 - Every **draft** has an outline: plain text, with the same formatting and comments as the draft. Notes have no outline.
 - **By default** the outline appears inline after its file, below a divider.
-- **Pin:** a pin icon on the divider (or View → Pin Outline, **⌥⌘O** **(assumed)**) moves outlines into the **pinned outline pane** at the bottom; its height is adjustable by dragging. When pinned, the main editor shows only the draft text. The pane shows the outlines of **all selected files**, stacked, each labeled with its file name. When only notes are selected the pane is hidden, since notes have no outline. Unpinning puts them back inline.
-- **Outline view:** a **Draft | Outline** switch at the right of the editor header, beside the split button (or View → Outline View, **⇧⌘O** **(assumed)**). The highlighted side is what the pane shows. Outline view shows only the outlines of the selected drafts, at full brightness, each under a divider line with its file's name, so you can see and work on the whole outline at once. Each pane of a split has its own view, like Read mode. Choosing Read mode switches back to Draft; jumping to something in the draft text (a search result, comment or bookmark) switches back to Draft too. The word count shows the outline's words while in Outline view.
+- **Pin:** a **Pin Outline** button on the divider (the pane's own button says **Unpin Outline**) (or View → Pin Outline, **⌥⌘O** **(assumed)**) moves outlines into the **pinned outline pane** at the bottom; its height is adjustable by dragging. When pinned, the main editor shows only the draft text. The pane shows the outlines of **all selected files**, stacked, each labeled with its file name (no rule across, and no label at all when there's only one). When only notes are selected the pane is hidden, since notes have no outline. Unpinning puts them back inline.
+- **Outline view:** a **Draft | Outline** switch at the right of the editor header, beside the split button (or View → Outline View, **⇧⌘O** **(assumed)**). The highlighted side is what the pane shows. Outline view shows only the outlines of the selected drafts, at full brightness, each under its file's name (no rule across, and no name at all when there's only one), so you can see and work on the whole outline at once. Each pane of a split has its own view, like Read mode. Choosing Read mode switches back to Draft; jumping to something in the draft text (a search result, comment or bookmark) switches back to Draft too. The word count shows the outline's words while in Outline view.
 - **Outline text never counts** toward the draft word count. It has its own count (§10).
 
 ---
@@ -224,23 +228,25 @@ Font, size, alignment (justified by default, or left), line height, indent size,
 ## 11. Saving and safety
 
 - **Always saved.** There is no ⌘S to remember. Changes are written when you pause typing (about 1 second), when you switch files, when the app goes to the background, and on quit.
+  - **"✓ Saved just now"** (then "Saved 3 min ago") sits in gray at the left of the word-count bar, so you can see it's true. If a write ever fails it turns into an orange **Not saved** (it's retried with the next change).
+  - **⌘S** still works, out of habit: it writes anything waiting and a bar drops in at the top of the window: "Autosave is always on".
 - **Safe writes:** each save writes a new copy, then swaps it in. A crash mid-save leaves the previous version intact.
 - **Snapshots:** each changed file gets an automatic copy in `snapshots/`, at most every ~10 minutes while you're editing it, plus before any risky operation such as delete or note/draft conversion.
   - **Browse Snapshots…** (right-click a file, or the File menu with one file selected) lists its snapshots by date beside a read-only preview of the text and outline. **Restore This Version** puts that text back; the current text is snapshotted first, so a restore can itself be undone.
-- **Trash:** deleted files go to the project's `trash/`. **Show Trash** (the trash button under the file list, or the File menu) lists them with a preview. **Restore** brings a file back to the end of its old parent, or the top level if that parent is gone. **Empty Trash…** asks, then permanently deletes everything in the trash along with those files' snapshots.
+- **Trash:** deleted files go to the project's `trash/`. **Show Trash** (the **View Trash** button under the file list, or the File menu) lists them with a preview. **Restore** brings a file back to the end of its old parent, or the top level if that parent is gone. **Empty Trash…** asks, then permanently deletes everything in the trash along with those files' snapshots.
 - **Backups:** the package layout is plain files, so Time Machine backs it up cleanly.
 
 ---
 
 ## 12. Other features
 
-- **Header:** shows the file name. Click and type to rename it when one file is selected; Return or clicking away saves, Esc puts the old name back. With one file selected, the header matches its sidebar row: the Working File arrow before the name and its icons after (click either to change them, §4). With several selected it shows "Name, Name, …", can't be edited, and shows no icons. The header's left corner holds the **Read mode** eye and the **copy** button; its right corner holds the **Draft | Outline** switch and the **split view** button.
-- **Split view:** two editor panes side by side, one of them active (clearly highlighted). Selecting in the sidebar changes what the **active** pane shows, and clicking into a pane makes the sidebar show that pane's selection. Toggle with **⌘\\** **(assumed)** (View → Split View), or the split button at the far right of the editor header. While split, that button becomes an **×** in each pane that closes just that pane; the other pane stays. Drag the divider between the panes to resize them (each keeps at least a usable width); the split position is remembered, and double-clicking the divider evens it out.
-  - The active pane has a coral bar along its top. Each pane has its own header, word count and (when pinned) outline pane; Read mode is per pane; pinning applies to both.
+- **Header:** shows the file name. Click and type to rename it when one file is selected; Return or clicking away saves, Esc puts the old name back. With one file selected, the header matches its sidebar row: the Working File arrow before the name and its labels after (click either to change them, §4). With several selected it shows "Name, Name, …", can't be edited, and shows no labels. The header's buttons are words: on the left **Read Mode** (shaded while on), **Copy ▾** and **No Indent** / **Use Indent** (§5); on the right the **Draft | Outline** switch and **Split**. Buttons with a keyboard shortcut show it after the word, small like a key cap (**Read Mode ⇧⌘R**, **Split View ⌘\\**, **⇧⌘O** by Draft | Outline). Closing one pane of a split is an **×**. When there's not room, the shortcuts go first, then the words turn back into small icons and the Draft | Outline switch is hidden (⇧⌘O still switches) — in a narrow split, say.
+- **Split view:** two editor panes side by side, one of them active (clearly highlighted). The split button only shows when a file is selected. Selecting in the sidebar changes what the **active** pane shows, and clicking into a pane makes the sidebar show that pane's selection. Toggle with **⌘\\** **(assumed)** (View → Split View), or the split button at the far right of the editor header. While split, that button becomes **Close** in each pane, which closes just that pane; the other pane stays. Drag the divider between the panes to resize them (each keeps at least a usable width); the split position is remembered, and double-clicking the divider evens it out.
+  - The active pane has an accent-coloured bar along its top. Each pane has its own header, word count and (when pinned) outline pane; The same file can be open in both panes: typing in one is saved and shows up in the other, and clicking into a pane first saves whatever the other was holding, so neither can save an old copy over the other's edits (if that ever happened anyway, the overwritten version is kept as a snapshot). The panes are otherwise independent: Read mode, Draft | Outline and pinning the outline are each per pane (a new pane starts with the first one's pinning, then goes its own way; the menu and ⌥⌘O act on the active pane).
   - Split view isn't remembered between launches yet **(assumed)**.
 - **Read mode** (the eye in the editor header, **⇧⌘R** **(assumed)** for the active pane) hides comments, outlines and bookmarks, so you can just read the draft. Read mode is **read-only (assumed)**: editing while things are hidden risks deleting text you can't see. Exit Read mode to edit.
-- **One-click copy:** a copy button in the top corner of every file. It copies the **draft text only**, with no comments, bookmarks or outline. The copy is formatted text (italics, bold, curly quotes), so it pastes cleanly into Word, Google Docs or email, and also includes a plain-text version.
-  - The button in the header's corner copies **all selected files**. When several are shown, each file's dashed header line also has its own copy icon for just that file.
+- **One-click copy:** **Copy ▾** in the header offers **Just Manuscript** (the draft text only, with no comments, bookmarks or outline), **Just Outlines** (the drafts' outlines, flush left) and **Outlines + Manuscript** (each file's text, then its outline after an empty line). Comments and bookmarks are never copied. The copy is formatted text (italics, bold, curly quotes), so it pastes cleanly into Word, Google Docs or email, and also includes a plain-text version.
+  - The header's Copy copies **all selected files**. When several are shown, each file's dashed header line also has its own copy icon for just that file's manuscript.
   - The copy uses the editor's font at 12 pt, with book-style first-line indents for drafts and one empty line between files. New York becomes Times New Roman and SF becomes Helvetica Neue, since Mac system fonts don't travel to other apps **(assumed)**.
   - Paragraphs holding only a comment are dropped, as is the space in front of each comment.
 - **⌘F search:** the magnifying glass in the toolbar (beside the right-panel button), or ⌘F, turns the right panel into search, opening the panel if it was hidden. Results appear as you type. It searches **everything**: file names, drafts, outlines, notes, comments and bookmarks. Results are grouped by type, each with a preview snippet. Use the arrow keys to move and Return to jump, or click a result; search stays open so you can work through the results.
@@ -250,10 +256,10 @@ Font, size, alignment (justified by default, or left), line height, indent size,
   - ⌘F replaces the text view's own Find **(assumed)**: one search for everything is simpler than two.
   - **Options**, as small toggles under the field (remembered between launches): **Match Case**, **Whole Words** ("Al" doesn't find "Also"; "Al’s" still counts), and **Word Forms** ("run" also finds "ran", "running"; whole words only, using the Mac's own dictionary forms, on the device).
   - **Mira + Kate** (terms joined by `+`) finds paragraphs containing every term, each highlighted.
-  - **In: Whole Project ▾** limits the search to the selected files (and everything nested in them, as selected when chosen, so jumping to results doesn't change it) or to files marked with one icon.
+  - **In: Whole Project ▾** limits the search to **Just Notes**, to the selected files (and everything nested in them, as selected when chosen, so jumping to results doesn't change it) or to files with one label.
   - A count of matches sits beside the scope; only the first 50 of each kind are listed.
 - **Replace:** ⌥⌘F, or the chevron beside the search field, shows a **Replace with** field under it.
-  - Every result then previews the change: the match struck out, the replacement after it. A checkbox on each result leaves it out. **Replace N** replaces every ticked match, including ones past the 50 shown, in file names, drafts, outlines, notes, comments and bookmark names.
+  - Every result then previews the change: the match struck out, the replacement after it. A checkbox on each result leaves it out. **Replace N** replaces every ticked match, including ones past the 50 shown, in file names, drafts, outlines, notes, comments and bookmarks.
   - **Preserve case** (on by default; unavailable with Match Case): bob → dave, Bob → Dave, BOB → DAVE. Capitals inside the replacement (McKay) are kept. Italic and bold follow the first letter of the match.
   - Not available for `+` searches or with Word Forms on (it would turn "ran" into the replacement's plain form).
   - Before replacing, each file it will change is snapshotted (§11). Afterwards a bar says "Replaced N in M files" with **Undo**, which puts back every file not edited since; it lasts until the next replace or until search closes.
@@ -265,7 +271,9 @@ Font, size, alignment (justified by default, or left), line height, indent size,
 | Action | Keys |
 |---|---|
 | Italic / Bold | ⌘I / ⌘B |
-| Add bookmark | ⌘D |
+| Start a bookmark at the cursor | ⌘D |
+| Mark comment Done / not done | ⇧⌘D |
+| Save (already saved; confirms it) | ⌘S |
 | Start a comment at the cursor | ⌘/ *(assumed)* |
 | Search everything | ⌘F |
 | Find and replace | ⌥⌘F *(assumed)* |

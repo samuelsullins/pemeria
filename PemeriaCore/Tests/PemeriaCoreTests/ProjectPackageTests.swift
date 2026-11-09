@@ -109,6 +109,32 @@ struct ProjectPackageTests {
         #expect(FileManager.default.fileExists(atPath: package.manifestURL.path))
     }
 
+    @Test func readOnlyLoadRepairsInMemoryAndWritesNothing() throws {
+        let package = try makePackage()
+        try package.write(PemeriaFile(id: "abc123", title: "Original", order: "V"))
+        try FileManager.default.copyItem(
+            at: package.fileURL(for: "abc123"),
+            to: package.filesURL.appending(path: "abc123 copy.md")
+        )
+        try FileManager.default.removeItem(at: package.manifestURL)
+        let before = try FileManager.default.subpathsOfDirectory(atPath: package.url.path).sorted()
+
+        let loaded = try package.load(repairing: false)
+        #expect(loaded.manifest.name == "Novel")
+        #expect(loaded.files.count == 2)
+        #expect(Set(loaded.files.values.map(\.title)) == ["Original"])
+        #expect(loaded.problems.count == 2)
+        #expect(try FileManager.default.subpathsOfDirectory(atPath: package.url.path).sorted() == before)
+    }
+
+    @Test func readOnlyLoadOfAProjectWithNoFilesFolder() throws {
+        let package = try makePackage()
+        try FileManager.default.removeItem(at: package.filesURL)
+        let loaded = try package.load(repairing: false)
+        #expect(loaded.files.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: package.filesURL.path))
+    }
+
     @Test func trashAndSnapshotsKeepCopies() throws {
         let package = try makePackage()
         var file = PemeriaFile(id: "abc123", title: "Draft", order: "V", body: [.paragraph(Paragraph("v1"))])

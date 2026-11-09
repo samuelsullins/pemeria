@@ -20,11 +20,44 @@ final class MarkerFragment: NSTextLayoutFragment {
         fatalError("init(coder:) is not used")
     }
 
-    /// Where the divider's pin icon sits, relative to this fragment's origin.
-    var pinRect: CGRect {
-        let size: CGFloat = 14
-        return CGRect(x: padding + lineWidth - size, y: (layoutFragmentFrame.height - size) / 2, width: size, height: size)
+    /// The divider's pin button at the right end: "Pin Outline", then its shortcut.
+    private static let pinLabel = NSAttributedString(string: "Pin Outline", attributes: [
+        .font: NSFont.systemFont(ofSize: 11),
+        .foregroundColor: NSColor.secondaryLabelColor,
+    ])
+    private static let pinKeys = NSAttributedString(string: "⌥⌘O", attributes: [
+        .font: NSFont(descriptor: NSFont.systemFont(ofSize: 10, weight: .medium).fontDescriptor.withDesign(.rounded)
+            ?? NSFont.systemFont(ofSize: 10).fontDescriptor, size: 10) ?? NSFont.systemFont(ofSize: 10),
+        .foregroundColor: NSColor.tertiaryLabelColor,
+    ])
+
+    private struct PinButton {
+        var label: CGPoint
+        var chip: CGRect
+        var keys: CGPoint
+        var whole: CGRect
     }
+
+    /// Where each part of the pin button sits, relative to this fragment's origin.
+    private var pinButton: PinButton {
+        let labelSize = Self.pinLabel.size()
+        let keysSize = Self.pinKeys.size()
+        let chip = CGSize(width: ceil(keysSize.width) + 8, height: ceil(keysSize.height) + 2)
+        let total = ceil(labelSize.width) + 6 + chip.width
+        let midY = layoutFragmentFrame.height / 2
+        var x = padding + lineWidth - total
+        let start = x
+        let label = CGPoint(x: x, y: midY - labelSize.height / 2)
+        x += ceil(labelSize.width) + 6
+        let chipRect = CGRect(x: x, y: midY - chip.height / 2, width: chip.width, height: chip.height)
+        let keys = CGPoint(x: x + 4, y: midY - keysSize.height / 2)
+        let height = max(chip.height, labelSize.height)
+        return PinButton(label: label, chip: chipRect, keys: keys,
+                         whole: CGRect(x: start, y: midY - height / 2, width: total, height: height))
+    }
+
+    /// The whole pin button, for clicks, relative to this fragment's origin.
+    var pinRect: CGRect { pinButton.whole }
 
     /// Where a file header's copy icon sits: at the right end, on the title's line.
     var copyRect: CGRect {
@@ -43,6 +76,8 @@ final class MarkerFragment: NSTextLayoutFragment {
 
     /// Headers in the pinned outline pane are labels only.
     var hasCopyButton = true
+    /// The dashed rule across a file header; left out where only outlines are shown.
+    var hasRule = true
 
     private var lineWidth: CGFloat {
         let container = textLayoutManager?.textContainer
@@ -69,7 +104,7 @@ final class MarkerFragment: NSTextLayoutFragment {
         switch kind {
         case .fileHeader(_, let title, let copied):
             let lineY = point.y + height * 0.35
-            dashedLine(from: left, to: right, y: lineY, color: .tertiaryLabelColor, dash: [2, 5])
+            if hasRule { dashedLine(from: left, to: right, y: lineY, color: .tertiaryLabelColor, dash: [2, 5]) }
             let label = NSAttributedString(string: title, attributes: [
                 .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
                 .foregroundColor: NSColor.secondaryLabelColor,
@@ -97,19 +132,26 @@ final class MarkerFragment: NSTextLayoutFragment {
             let size = label.size()
             let midY = point.y + height / 2
             label.draw(at: CGPoint(x: left, y: midY - size.height / 2))
-            let pin = pinRect.offsetBy(dx: point.x, dy: point.y)
-            let rule = NSBezierPath()
-            rule.move(to: CGPoint(x: left + size.width + 10, y: midY))
-            rule.line(to: CGPoint(x: pin.minX - 10, y: midY))
-            rule.lineWidth = 0.5
-            NSColor.separatorColor.setStroke()
-            rule.stroke()
-            let configuration = NSImage.SymbolConfiguration(pointSize: 11, weight: .regular)
-                .applying(.init(hierarchicalColor: .tertiaryLabelColor))
-            if let image = NSImage(systemSymbolName: "pin", accessibilityDescription: "Pin outline")?
-                .withSymbolConfiguration(configuration) {
-                image.draw(in: pin)
+            let button = pinButton
+            let shift = CGAffineTransform(translationX: point.x, y: point.y)
+            let ruleStart = left + size.width + 10
+            let ruleEnd = button.whole.applying(shift).minX - 10
+            if ruleEnd > ruleStart {
+                let rule = NSBezierPath()
+                rule.move(to: CGPoint(x: ruleStart, y: midY))
+                rule.line(to: CGPoint(x: ruleEnd, y: midY))
+                rule.lineWidth = 0.5
+                NSColor.separatorColor.setStroke()
+                rule.stroke()
             }
+            Self.pinLabel.draw(at: button.label.applying(shift))
+            let chip = NSBezierPath(roundedRect: button.chip.applying(shift), xRadius: 4, yRadius: 4)
+            NSColor.labelColor.withAlphaComponent(0.06).setFill()
+            chip.fill()
+            NSColor.labelColor.withAlphaComponent(0.1).setStroke()
+            chip.lineWidth = 0.5
+            chip.stroke()
+            Self.pinKeys.draw(at: button.keys.applying(shift))
         }
     }
 

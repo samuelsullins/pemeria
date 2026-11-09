@@ -8,7 +8,7 @@ enum DraftCopy {
     static let fontSize: CGFloat = 12
     static let indent: CGFloat = 36
 
-    static func attributedString(_ files: [(kind: FileKind, paragraphs: [Paragraph])]) -> NSAttributedString {
+    static func attributedString(_ files: [(kind: FileKind, indented: Bool, paragraphs: [Paragraph])]) -> NSAttributedString {
         let style = copyStyle()
         var fonts: [InlineStyle: NSFont] = [:]
         func font(_ inline: InlineStyle) -> NSFont {
@@ -23,7 +23,7 @@ enum DraftCopy {
         for (fileIndex, file) in files.enumerated() {
             if fileIndex > 0 { lines.append((Paragraph(runs: []), false)) }
             for (index, paragraph) in file.paragraphs.enumerated() {
-                lines.append((paragraph, file.kind == .draft && index > 0))
+                lines.append((paragraph, file.indented && index > 0))
             }
         }
 

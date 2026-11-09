@@ -16,7 +16,7 @@ struct WordCountTests {
     }
 
     @Test func countsPartOfALineWithoutComments() {
-        let line = "She ran home. // too fast? Then slept."
+        let line = "She ran home. // too fast?\\ Then slept."
         let whole = NSRange(location: 0, length: (line as NSString).length)
         #expect(WordCount.count(in: whole, ofLine: line) == 5)
         // Starting inside the comment still skips it.
@@ -32,8 +32,7 @@ struct WordCountTests {
         let note = project.createFile(kind: .note, title: "N", after: b.id)
         _ = project.setContent(a.id, body: [
             .paragraph(Paragraph("One two three. // not these words.")),
-            .bookmark(Bookmark(id: "bm01", name: "Mark here", offset: 0)),
-            .paragraph(Paragraph(runs: [Run("Four "), Run("five", .italic)])),
+            .paragraph(Paragraph(runs: [Run("# Mark here\\ Four "), Run("five", .italic)])),
             .paragraph(Paragraph("// a whole comment line")),
         ], outline: [.paragraph(Paragraph("Outline words here"))])
         _ = project.setContent(b.id, body: [.paragraph(Paragraph("Six seven"))], outline: nil)
@@ -101,9 +100,9 @@ struct IconsAndWorkingFileTests {
         let b = project.createFile(kind: .note, title: "B", after: a.id)
         _ = project.setContent(a.id, body: [
             .paragraph(Paragraph("First. // fix.")),
-            .bookmark(Bookmark(id: "bm01", name: "x", offset: 2)),
-            .paragraph(Paragraph(runs: [Run("Second "), Run("one", .italic)])),
+            .paragraph(Paragraph(runs: [Run("Second "), Run("one", .italic), Run(" # x")])),
             .paragraph(Paragraph("// only a comment")),
+            .paragraph(Paragraph("# only a bookmark")),
             .paragraph(Paragraph(runs: [])),
         ], outline: [.paragraph(Paragraph("outline"))])
         _ = project.setContent(b.id, body: [.paragraph(Paragraph("Note."))], outline: nil)

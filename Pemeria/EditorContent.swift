@@ -62,6 +62,7 @@ enum EditorMode: Equatable {
 struct ShownFile: Equatable {
     let id: FileID
     let kind: FileKind
+    let indents: Bool
 }
 
 /// Everything an editor shows, laid out as one text:
@@ -71,8 +72,8 @@ struct ShownFile: Equatable {
 /// ```
 ///
 /// Markers and segments are joined by single newlines; each marker is one invisible character
-/// on its own line. In `.full` and `.bodies`, headers appear only when more than one file is
-/// shown; in `.outlines` and `.outlineView` every outline gets one. Notes have no outline.
+/// on its own line. Headers appear only when more than one file (or outline) is shown. Notes
+/// have no outline.
 struct EditorContent {
     enum Piece {
         case marker
@@ -92,7 +93,7 @@ struct EditorContent {
                 if files.count > 1 {
                     appendMarker(EditorMarker(kind: .fileHeader, fileID: file.id, title: file.title))
                 }
-                appendSegment(file.id, .body, indented: file.kind == .draft, TextBridge.attributedString(file.body))
+                appendSegment(file.id, .body, indented: file.indents, TextBridge.attributedString(file.body))
                 if mode == .full, file.kind == .draft {
                     appendMarker(EditorMarker(kind: .outlineDivider, fileID: file.id, title: file.title))
                     appendSegment(file.id, .outline, indented: false, TextBridge.attributedString(file.outline ?? []))
@@ -101,14 +102,14 @@ struct EditorContent {
                 if files.count > 1 {
                     appendMarker(EditorMarker(kind: .fileHeader, fileID: file.id, title: file.title))
                 }
-                let readable = file.body.compactMap { block -> Block? in
-                    guard case .paragraph(let paragraph) = block else { return nil }
-                    return Comments.stripped(paragraph).map(Block.paragraph)
-                }
-                appendSegment(file.id, .body, indented: file.kind == .draft, TextBridge.attributedString(readable))
+                let readable = Comments.strippedParagraphs(of: file.body).compactMap { $0.map(Block.paragraph) }
+                appendSegment(file.id, .body, indented: file.indents, TextBridge.attributedString(readable))
             case .outlines, .outlineView:
                 guard file.kind == .draft else { continue }
-                appendMarker(EditorMarker(kind: .fileHeader, fileID: file.id, title: file.title))
+                // Outlines are labelled only when there's more than one to tell apart.
+                if files.filter({ $0.kind == .draft }).count > 1 {
+                    appendMarker(EditorMarker(kind: .fileHeader, fileID: file.id, title: file.title))
+                }
                 appendSegment(file.id, .outline, indented: false, TextBridge.attributedString(file.outline ?? []))
             }
         }

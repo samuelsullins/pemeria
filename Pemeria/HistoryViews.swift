@@ -184,8 +184,11 @@ struct DocumentPreview: View {
     static func text(_ blocks: [Block]) -> AttributedString {
         var result = AttributedString()
         var first = true
-        for block in blocks {
-            guard case .paragraph(let paragraph) = block else { continue }
+        let paragraphs = blocks.compactMap { block -> Paragraph? in
+            if case .paragraph(let paragraph) = block { return paragraph }
+            return nil
+        }
+        for (paragraph, comments) in zip(paragraphs, Comments.annotations(inLines: paragraphs.map(\.text))) {
             if !first { result += AttributedString("\n") }
             first = false
             var line = AttributedString()
@@ -197,7 +200,7 @@ struct DocumentPreview: View {
                 if !intent.isEmpty { piece.inlinePresentationIntent = intent }
                 line += piece
             }
-            for comment in Comments.ranges(in: paragraph.text) {
+            for comment in comments.map(\.range) {
                 guard let range = Range(comment, in: line) else { continue }
                 line[range].foregroundColor = .secondary
             }

@@ -5,16 +5,25 @@ extension Project {
     /// in book order, with no comments, bookmarks or outline. Paragraphs that held only a
     /// comment are dropped.
     ///
-    /// Returns, per file, its kind and paragraphs, so the caller can style drafts and notes.
-    public func draftText(of ids: [FileID]) -> [(kind: FileKind, paragraphs: [Paragraph])] {
+    /// Returns, per file, its kind, whether it's indented, and its paragraphs, so the caller can
+    /// style it.
+    public func draftText(of ids: [FileID]) -> [(kind: FileKind, indented: Bool, paragraphs: [Paragraph])] {
         let wanted = Set(ids)
         return tree.bookOrder.filter(wanted.contains).compactMap { id in
             guard let file = files[id] else { return nil }
-            let paragraphs = file.body.compactMap { block -> Paragraph? in
-                guard case .paragraph(let paragraph) = block else { return nil }
-                return Comments.stripped(paragraph)
-            }
-            return (file.kind, paragraphs)
+            let paragraphs = Comments.strippedParagraphs(of: file.body).compactMap { $0 }
+            return (file.kind, file.indents, paragraphs)
+        }
+    }
+
+    /// The drafts' outlines in book order, with no comments or bookmarks; notes have none, and
+    /// empty outlines are left out.
+    public func outlineText(of ids: [FileID]) -> [(id: FileID, paragraphs: [Paragraph])] {
+        let wanted = Set(ids)
+        return tree.bookOrder.filter(wanted.contains).compactMap { id in
+            guard let file = files[id], file.kind == .draft, let outline = file.outline else { return nil }
+            let paragraphs = Comments.strippedParagraphs(of: outline).compactMap { $0 }
+            return paragraphs.isEmpty ? nil : (id, paragraphs)
         }
     }
 }

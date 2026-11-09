@@ -26,14 +26,16 @@ public enum WordCount {
     }
 
     /// Words in part of a paragraph, leaving out comments. Takes the whole paragraph so a
-    /// comment is recognised even when `range` starts partway into it.
-    public static func count(in range: NSRange, ofLine line: String) -> Int {
+    /// comment is recognised even when `range` starts partway into it. Pass the line's comment
+    /// ranges as `excluding` when they're known from the lines around it (comments can span
+    /// lines); otherwise the line is read on its own.
+    public static func count(in range: NSRange, ofLine line: String, excluding comments: [NSRange]? = nil) -> Int {
         let text = line as NSString
         let range = NSIntersectionRange(range, NSRange(location: 0, length: text.length))
         guard range.length > 0 else { return 0 }
         var kept = ""
         var cursor = range.location
-        for comment in Comments.ranges(in: line) {
+        for comment in comments ?? Comments.ranges(in: line) {
             let start = max(comment.location, cursor)
             let end = min(NSMaxRange(comment), NSMaxRange(range))
             guard start < end else { continue }
@@ -49,9 +51,8 @@ public enum WordCount {
 
     /// Words in a body or outline, leaving out comments.
     public static func count(_ blocks: [Block]) -> Int {
-        blocks.reduce(0) { total, block in
-            guard case .paragraph(let paragraph) = block else { return total }
-            return total + (Comments.stripped(paragraph).map { count($0.text) } ?? 0)
+        Comments.strippedParagraphs(of: blocks).reduce(0) { total, paragraph in
+            total + (paragraph.map { count($0.text) } ?? 0)
         }
     }
 }

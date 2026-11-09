@@ -117,6 +117,19 @@ struct FileCodecTests {
         #expect(file.outline == nil)
     }
 
+    @Test func indentIsOnlyWrittenOnceChosen() {
+        var file = PemeriaFile(id: "k3f9a2", title: "A", order: "V", kind: .note)
+        #expect(!FileCodec.encode(file).contains("indent"))
+        #expect(!file.indents)
+        file.indent = true
+        let text = FileCodec.encode(file)
+        #expect(text.contains("\nindent: yes\n"))
+        let decoded = FileCodec.decode(text, fallbackID: "zzzzzz")
+        #expect(decoded.indent == true)
+        #expect(decoded.indents)
+        #expect(FileCodec.decode(text.replacingOccurrences(of: "indent: yes", with: "indent: no"), fallbackID: "zzzzzz").indent == false)
+    }
+
     @Test func fileWithoutFrontMatterKeepsItsText() {
         let file = FileCodec.decode("Just some prose.\r\nSecond line", fallbackID: "abc123")
         #expect(file.id == "abc123")

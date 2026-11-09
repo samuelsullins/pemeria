@@ -30,10 +30,20 @@ final class ProjectModel {
     /// Repairs made while loading, for the user to see once.
     let problems: [String]
 
-    /// Outlines shown in the pinned pane below the editor instead of inline (SPEC.md §9).
-    var outlinePinned = false {
+    /// The panes whose outlines are in the pinned pane below the editor instead of inline
+    /// (SPEC.md §9). Each pane has its own, like Read mode; unsplit, only pane 0 counts.
+    private(set) var pinnedPanes: Set<Int> = [] {
         willSet { commitEditors() }
-        didSet { if outlinePinned != oldValue { saveState() } }
+        didSet { if pinnedPanes.contains(0) != oldValue.contains(0) { saveState() } }
+    }
+
+    func isOutlinePinned(pane: Int) -> Bool { pinnedPanes.contains(pane) }
+
+    /// Pins or unpins the outline in a pane; the active one by default.
+    func setOutlinePinned(_ pinned: Bool, pane: Int? = nil) {
+        let pane = pane ?? activePane
+        guard pinnedPanes.contains(pane) != pinned else { return }
+        if pinned { pinnedPanes.insert(pane) } else { pinnedPanes.remove(pane) }
     }
 
     /// The panes in Read mode (SPEC.md §12): comments, outlines and bookmarks hidden; not editable.
@@ -113,6 +123,8 @@ final class ProjectModel {
             isSplit = false
         } else {
             otherSelection = selection
+            // The new pane starts out like the first one, then goes its own way.
+            if pinnedPanes.contains(0) { pinnedPanes.insert(1) }
             activePane = 0
             isSplit = true
         }
@@ -134,6 +146,8 @@ final class ProjectModel {
         if readingPanes != reading { readingPanes = reading }
         let outline: Set<Int> = outlinePanes.contains(pane) ? [0] : []
         if outlinePanes != outline { outlinePanes = outline }
+        let pinned: Set<Int> = pinnedPanes.contains(pane) ? [0] : []
+        if pinnedPanes != pinned { pinnedPanes = pinned }
     }
 
     /// Makes a pane the active one; the sidebar then shows (and changes) its files.
@@ -198,6 +212,7 @@ final class ProjectModel {
     var searchScopeFiles: Set<FileID>? {
         switch searchScope {
         case .project: nil
+        case .notes: Set(project.files.values.filter { $0.kind == .note }.map(\.id))
         case .files(let ids): ids.filter { project.files[$0] != nil }
         case .icon(let id): Set(project.files.values.filter { $0.icons.contains(id) }.map(\.id))
         }
@@ -260,7 +275,7 @@ final class ProjectModel {
     /// Goes to a search result.
     func open(_ result: SearchResult) {
         if let location = result.location {
-            jump(to: location, bookmarkID: result.bookmarkID)
+            jump(to: location)
         } else {
             exitReadModeInActivePane()
             reveal(result.fileID)
@@ -311,7 +326,7 @@ final class ProjectModel {
         }
     }
 
-    /// Bumped to open the Icons pane at the bottom of the sidebar (e.g. "Edit Icons…").
+    /// Bumped to open the Labels pane at the bottom of the sidebar (e.g. "Edit Labels…").
     private(set) var iconEditorRequest = 0
 
     /// Words in the editor's selected text, or nil when nothing is selected (SPEC.md §10).
@@ -352,7 +367,7 @@ final class ProjectModel {
         if let state = package.loadState() {
             selection = state.selection.filter { project.files[$0] != nil }
             expanded = Set(state.expanded.filter { project.files[$0] != nil })
-            outlinePinned = state.outlinePinned
+            if state.outlinePinned { pinnedPanes = [0] }
             for (key, position) in state.positions {
                 if let id = FileID(key), project.files[id] != nil { positions[id] = position }
             }
@@ -379,6 +394,12 @@ final class ProjectModel {
 
     func rename(_ id: FileID, to title: String) {
         if let file = project.rename(id, to: title) { save([file]) }
+    }
+
+    /// The header's indent button: first-line indents on or off for these files.
+    func setIndent(_ ids: [FileID], to indent: Bool) {
+        commitEditors()
+        save(project.setIndent(ids, to: indent), structural: false)
     }
 
     func setKind(_ ids: [FileID], to kind: FileKind) {
@@ -422,7 +443,7 @@ final class ProjectModel {
     }
 
     /// Shows the file containing `location` (selecting it if needed) and moves the cursor there.
-    func jump(to location: TextLocation, bookmarkID: String? = nil) {
+    func jump(to location: TextLocation) {
         exitReadModeInActivePane()
         // Draft text isn't shown in Outline view.
         if !location.inOutline { setOutlineView(false) }
@@ -431,7 +452,7 @@ final class ProjectModel {
             selection = [location.fileID]
         }
         jumpCount += 1
-        jumpRequest = JumpRequest(id: jumpCount, location: location, bookmarkID: bookmarkID)
+        jumpRequest = JumpRequest(id: jumpCount, location: location)
     }
 
     // MARK: Icons and the Working File
@@ -461,7 +482,7 @@ final class ProjectModel {
         let used = Set(icons.map(\.color))
         let icon = IconDefinition(
             id: IconDefinition.generateID(avoiding: icons),
-            name: "New Icon",
+            name: "New Label",
             symbol: "star.fill",
             color: IconPalette.colors.first { !used.contains($0) } ?? IconPalette.colors[0]
         )
@@ -578,41 +599,98 @@ final class ProjectModel {
 
     /// One-click copy (SPEC.md §12): the files' draft text, as formatted and plain text.
     func copyDraftText(of ids: [FileID]) {
+        copy(.manuscript, of: ids)
+    }
+
+    /// The header's Copy menu: the manuscript, the outlines, or each file's text then its outline.
+    func copy(_ content: CopyContent, of ids: [FileID]) {
         commitEditors()
-        let text = DraftCopy.attributedString(project.draftText(of: ids))
+        let manuscript = project.draftText(of: ids)
+        let outlines = Dictionary(uniqueKeysWithValues: project.outlineText(of: ids).map { ($0.id, $0.paragraphs) })
+        var sections: [(kind: FileKind, indented: Bool, paragraphs: [Paragraph])] = []
+        switch content {
+        case .manuscript:
+            sections = manuscript
+        case .outlines:
+            sections = project.outlineText(of: ids).map { (.draft, false, $0.paragraphs) }
+        case .both:
+            let ordered = project.tree.bookOrder.filter(Set(ids).contains)
+            for (id, text) in zip(ordered, manuscript) {
+                sections.append(text)
+                if let outline = outlines[id] { sections.append((.draft, false, outline)) }
+            }
+        }
+        let text = DraftCopy.attributedString(sections)
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.writeObjects([text])
     }
 
-    func renameBookmark(_ entry: BookmarkEntry, to name: String) {
-        commitEditors()
-        guard let file = project.renameBookmark(entry.bookmark.id, in: entry.location.fileID,
-                                                inOutline: entry.location.inOutline, to: name) else { return }
-        save([file], structural: false)
-        contentToken += 1
+    /// Whether any of these files has an outline with something in it, to copy.
+    func hasOutlineText(_ ids: [FileID]) -> Bool {
+        !project.outlineText(of: ids).isEmpty
     }
 
-    func removeBookmark(_ entry: BookmarkEntry) {
+    /// Ticks a comment off (`//x`), or back on, from the Comments panel.
+    func setCommentDone(_ entry: CommentEntry, _ done: Bool) {
         commitEditors()
-        guard let file = project.removeBookmark(entry.bookmark.id, in: entry.location.fileID,
-                                                inOutline: entry.location.inOutline) else { return }
+        guard let file = project.setCommentDone(at: entry.location, done) else { return }
         snapshotIfDue(file.id)
         save([file], structural: false)
         contentToken += 1
     }
 
+    /// How many times each file's text and outline have been saved from an editor this session.
+    /// When one editor saves, any other showing the same text (the other pane of a split) sees the
+    /// number move and reloads, so it can never later save its old copy over the new one.
+    private(set) var textVersions: [TextPart: Int] = [:]
+
+    func textVersion(of part: TextPart) -> Int { textVersions[part, default: 0] }
+
     /// Saves text typed in the editor. Pass nil to leave the body or outline unchanged.
-    func updateContent(_ id: FileID, body: [Block]?, outline: [Block]?) {
-        guard let file = project.setContent(id, body: body, outline: outline) else { return }
+    /// `basedOn` is the editor's text version of each part it's saving; if another editor saved
+    /// that part in the meantime, the saved version is snapshotted first, so neither is lost.
+    /// Returns the parts' new versions.
+    @discardableResult
+    func updateContent(_ id: FileID, body: [Block]?, outline: [Block]?, basedOn: [TextPart: Int] = [:]) -> [TextPart: Int] {
+        let parts = [body.map { _ in TextPart(fileID: id, inOutline: false) },
+                     outline.map { _ in TextPart(fileID: id, inOutline: true) }].compactMap { $0 }
+        let savedElsewhere = parts.contains { part in
+            basedOn[part].map { $0 != textVersion(of: part) } ?? false
+        }
+        if savedElsewhere {
+            try? package.snapshot(id)
+            lastSnapshot[id] = .now
+        }
+        let before = project.files[id]
+        guard let file = project.setContent(id, body: body, outline: outline) else {
+            return Dictionary(uniqueKeysWithValues: parts.map { ($0, textVersion(of: $0)) })
+        }
+        if before?.body != file.body { textVersions[TextPart(fileID: id, inOutline: false), default: 0] += 1 }
+        if before?.outline != file.outline { textVersions[TextPart(fileID: id, inOutline: true), default: 0] += 1 }
         snapshotIfDue(id)
         save([file], structural: false)
+        return Dictionary(uniqueKeysWithValues: parts.map { ($0, textVersion(of: $0)) })
     }
 
     // MARK: Saving
 
-    /// Files whose last write failed; retried with the next save.
-    private var unsaved: Set<FileID> = []
+    /// Files whose last write failed; retried with the next save (and on ⌘S).
+    private(set) var unsaved: Set<FileID> = []
+    /// When a file was last written this session.
+    private(set) var lastSavedAt: Date?
+    /// Bumped by ⌘S to show the "saved" bar at the top of the window.
+    private(set) var saveConfirmation = 0
+
+    /// ⌘S: Pemeria always saves by itself, so this writes anything still waiting (typing within
+    /// the last second, or a file whose last write failed) and then confirms it.
+    func saveNow() {
+        commitEditors()
+        let retries = unsaved.compactMap { project.files[$0] }
+        if !retries.isEmpty { save(retries, structural: false) }
+        saveState()
+        saveConfirmation += 1
+    }
     /// When each file was last snapshotted this session.
     private var lastSnapshot: [FileID: Date] = [:]
     private let snapshotInterval: TimeInterval = 10 * 60
@@ -635,6 +713,7 @@ final class ProjectModel {
             wordCountCache[file.id] = nil
             do {
                 try package.write(file)
+                lastSavedAt = .now
             } catch {
                 unsaved.insert(file.id)
                 failures.append("“\(file.title)”: \(error.localizedDescription)")
@@ -651,14 +730,29 @@ final class ProjectModel {
             selection: selection,
             expanded: expanded.sorted(),
             positions: Dictionary(uniqueKeysWithValues: positions.map { ($0.key.rawValue, $0.value) }),
-            outlinePinned: outlinePinned
+            outlinePinned: pinnedPanes.contains(0)
         ))
     }
+}
+
+/// A file's text or its outline.
+struct TextPart: Hashable {
+    let fileID: FileID
+    let inOutline: Bool
+}
+
+/// What the header's Copy menu copies.
+enum CopyContent {
+    case manuscript
+    case outlines
+    case both
 }
 
 /// Which files ⌘F searches.
 enum SearchScope: Equatable {
     case project
+    /// Only notes (whichever exist when searching).
+    case notes
     /// Files chosen when the scope was set, so jumping to results doesn't change it.
     case files(Set<FileID>)
     /// Files with this icon.
@@ -675,6 +769,4 @@ struct ReplaceRecord {
 struct JumpRequest: Equatable {
     let id: Int
     let location: TextLocation
-    /// Set when jumping to a bookmark: the editor finds its tag directly.
-    let bookmarkID: String?
 }
