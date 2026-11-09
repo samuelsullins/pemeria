@@ -6,7 +6,7 @@ extension NSAttributedString.Key {
     static let pemeriaMarker = NSAttributedString.Key("com.samuelsullins.pemeria.marker")
 }
 
-/// A non-editable line between editable stretches: the label above each file when several
+/// A non-editable line between editable stretches: the line above each file when several
 /// are shown, or the divider before a file's outline.
 final class EditorMarker: NSObject {
     enum Kind {
@@ -17,17 +17,24 @@ final class EditorMarker: NSObject {
     let kind: Kind
     let fileID: FileID
     var title: String
+    /// Whether a file header names its file. Not where the file's title line follows it in the
+    /// text: there the header is just a rule between files.
+    let showsTitle: Bool
 
-    init(kind: Kind, fileID: FileID, title: String) {
+    init(kind: Kind, fileID: FileID, title: String, showsTitle: Bool = true) {
         self.kind = kind
         self.fileID = fileID
         self.title = title
+        self.showsTitle = showsTitle
     }
 }
 
-/// An editable stretch of the editor's text: one file's body or outline.
+/// An editable stretch of the editor's text: one file's title line, body or outline.
 struct EditorSegment {
     enum Role {
+        /// The file's name, in large type above its text. Always one line; editing it renames
+        /// the file.
+        case title
         case body
         case outline
     }
@@ -68,12 +75,13 @@ struct ShownFile: Equatable {
 /// Everything an editor shows, laid out as one text:
 ///
 /// ```
-/// [header] body \n [divider] \n outline \n [header] body …
+/// [header] \n title \n body \n [divider] \n outline \n [header] \n title \n body …
 /// ```
 ///
 /// Markers and segments are joined by single newlines; each marker is one invisible character
-/// on its own line. Headers appear only when more than one file (or outline) is shown. Notes
-/// have no outline.
+/// on its own line. Headers appear only when more than one file (or outline) is shown. Where
+/// the files' text is shown, each starts with its title line, and the header is just a rule.
+/// Notes have no outline.
 struct EditorContent {
     enum Piece {
         case marker
@@ -90,18 +98,14 @@ struct EditorContent {
         for file in files {
             switch mode {
             case .full, .bodies:
-                if files.count > 1 {
-                    appendMarker(EditorMarker(kind: .fileHeader, fileID: file.id, title: file.title))
-                }
+                appendTitle(of: file, after: files.count > 1)
                 appendSegment(file.id, .body, indented: file.indents, TextBridge.attributedString(file.body))
                 if mode == .full, file.kind == .draft {
                     appendMarker(EditorMarker(kind: .outlineDivider, fileID: file.id, title: file.title))
                     appendSegment(file.id, .outline, indented: false, TextBridge.attributedString(file.outline ?? []))
                 }
             case .reading:
-                if files.count > 1 {
-                    appendMarker(EditorMarker(kind: .fileHeader, fileID: file.id, title: file.title))
-                }
+                appendTitle(of: file, after: files.count > 1)
                 let readable = Comments.strippedParagraphs(of: file.body).compactMap { $0.map(Block.paragraph) }
                 appendSegment(file.id, .body, indented: file.indents, TextBridge.attributedString(readable))
             case .outlines, .outlineView:
@@ -113,6 +117,14 @@ struct EditorContent {
                 appendSegment(file.id, .outline, indented: false, TextBridge.attributedString(file.outline ?? []))
             }
         }
+    }
+
+    /// A file's title line, with a rule above it when it isn't the only file shown.
+    private mutating func appendTitle(of file: PemeriaFile, after rule: Bool) {
+        if rule {
+            appendMarker(EditorMarker(kind: .fileHeader, fileID: file.id, title: file.title, showsTitle: false))
+        }
+        appendSegment(file.id, .title, indented: false, NSAttributedString(string: file.title))
     }
 
     private mutating func separate() {

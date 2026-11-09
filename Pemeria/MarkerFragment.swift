@@ -4,8 +4,9 @@ import PemeriaCore
 /// Draws a marker line (file header or outline divider) in place of its invisible character.
 final class MarkerFragment: NSTextLayoutFragment {
     enum Kind {
-        /// `copied` swaps the copy icon for a checkmark just after a copy.
-        case fileHeader(fileID: FileID, title: String, copied: Bool)
+        /// `copied` swaps the copy icon for a checkmark just after a copy. With no `title`, the
+        /// header is a rule with the copy icon at its end (the file's title line follows it).
+        case fileHeader(fileID: FileID, title: String?, copied: Bool)
         case outlineDivider
     }
 
@@ -59,9 +60,13 @@ final class MarkerFragment: NSTextLayoutFragment {
     /// The whole pin button, for clicks, relative to this fragment's origin.
     var pinRect: CGRect { pinButton.whole }
 
-    /// Where a file header's copy icon sits: at the right end, on the title's line.
+    /// Where a file header's copy icon sits: at the right end, on the title's line, or on the
+    /// rule when there's no title.
     var copyRect: CGRect {
         let size: CGFloat = 14
+        if case .fileHeader(_, nil, _) = kind {
+            return CGRect(x: padding + lineWidth - size, y: layoutFragmentFrame.height / 2 - size / 2, width: size, height: size)
+        }
         let lineY = layoutFragmentFrame.height * 0.35
         return CGRect(x: padding + lineWidth - size, y: lineY + 6, width: size, height: size)
     }
@@ -103,13 +108,19 @@ final class MarkerFragment: NSTextLayoutFragment {
 
         switch kind {
         case .fileHeader(_, let title, let copied):
-            let lineY = point.y + height * 0.35
-            if hasRule { dashedLine(from: left, to: right, y: lineY, color: .tertiaryLabelColor, dash: [2, 5]) }
-            let label = NSAttributedString(string: title, attributes: [
-                .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
-                .foregroundColor: NSColor.secondaryLabelColor,
-            ])
-            label.draw(at: CGPoint(x: left, y: lineY + 6))
+            if let title {
+                let lineY = point.y + height * 0.35
+                if hasRule { dashedLine(from: left, to: right, y: lineY, color: .tertiaryLabelColor, dash: [2, 5]) }
+                let label = NSAttributedString(string: title, attributes: [
+                    .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
+                    .foregroundColor: NSColor.secondaryLabelColor,
+                ])
+                label.draw(at: CGPoint(x: left, y: lineY + 6))
+            } else if hasRule {
+                // The rule stops short of the copy icon at its end.
+                let end = hasCopyButton ? copyRect.minX + point.x - 10 : right
+                dashedLine(from: left, to: end, y: point.y + height / 2, color: .tertiaryLabelColor, dash: [2, 5])
+            }
             if hasCopyButton {
                 let color: NSColor = copied ? Theme.accent : .tertiaryLabelColor
                 let configuration = NSImage.SymbolConfiguration(pointSize: 11, weight: .regular)

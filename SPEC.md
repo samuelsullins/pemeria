@@ -143,8 +143,9 @@ The sidebar and the right panel each toggle on and off. One project is open at a
 ## 5. Editor
 
 ### Showing files
-- **One file selected:** you see its text, then an outline divider, then its outline.
-- **Several files selected:** they appear in sidebar order, each followed by its outline, with a **dotted page-break line** between files. Each file has a small name label at the top.
+- **Title line:** each file's text starts with its name, in large bold type in the text's own typeface. It's part of the text you scroll through, and it stays in the header above too. Editing it renames the file (saved like any typing, a second after you pause), and renaming the file anywhere else updates it. It's always one line: Return moves down to the file's text, pasted line breaks become spaces, and it takes no italics, bold, comments or bookmarks. Emptying it doesn't rename the file; leave it empty and the old name comes back next time it's shown. It isn't counted as words and isn't copied by one-click copy. Read mode shows it; outline view and the pinned outline pane keep their small name labels instead.
+- **One file selected:** you see its title line, its text, then an outline divider, then its outline.
+- **Several files selected:** they appear in sidebar order, each followed by its outline, with a **dotted page-break line** between files (with that file's copy icon at its right end), then the next file's title line.
 - **Remembering your place:** the cursor and scroll position are remembered per file. Switching away and back returns you to the same spot.
 - **On project open:** whatever was open last is restored: selection, panes and positions.
 
@@ -248,7 +249,7 @@ Font, size, alignment (justified by default, or left), line height, indent size,
   - Split view isn't remembered between launches yet **(assumed)**.
 - **Read mode** (the eye in the editor header, **⇧⌘R** **(assumed)** for the active pane) hides comments, outlines and bookmarks, so you can just read the draft. Read mode is **read-only (assumed)**: editing while things are hidden risks deleting text you can't see. Exit Read mode to edit.
 - **One-click copy:** **Copy ▾** in the header offers **Just Manuscript** (the draft text only, with no comments, bookmarks or outline), **Just Outlines** (the drafts' outlines, flush left) and **Outlines + Manuscript** (each file's text, then its outline after an empty line). Comments and bookmarks are never copied. The copy is formatted text (italics, bold, curly quotes), so it pastes cleanly into Word, Google Docs or email, and also includes a plain-text version.
-  - The header's Copy copies **all selected files**. When several are shown, each file's dashed header line also has its own copy icon for just that file's manuscript.
+  - The header's Copy copies **all selected files**. When several are shown, the dashed line above each file also has its own copy icon for just that file's manuscript.
   - The copy uses the editor's font at 12 pt, with book-style first-line indents for drafts and one empty line between files. New York becomes Times New Roman and SF becomes Helvetica Neue, since Mac system fonts don't travel to other apps **(assumed)**.
   - Paragraphs holding only a comment are dropped, as is the space in front of each comment.
 - **⌘F search:** the magnifying glass in the toolbar (beside the right-panel button), or ⌘F, turns the right panel into search, opening the panel if it was hidden. Results appear as you type. It searches **everything**: file names, drafts, outlines, notes, comments and bookmarks. Results are grouped by type, each with a preview snippet. Use the arrow keys to move and Return to jump, or click a result; search stays open so you can work through the results.

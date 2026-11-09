@@ -32,6 +32,8 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
     /// Files whose header copy icon is showing a checkmark for a moment.
     private var recentlyCopied: Set<FileID> = []
     private var dirty: Set<FileID> = []
+    /// Files whose title line has been edited here and not yet saved as their name.
+    private var dirtyTitles: Set<FileID> = []
     /// Each segment's comments and bookmarks, worked out from its whole text (they can span
     /// lines). Dropped whenever that segment's text changes.
     private var annotationCache: [Int: SegmentAnnotations] = [:]
@@ -177,7 +179,7 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
 
     private func show(_ files: [PemeriaFile], keeping place: Place? = nil) {
         // Edits are normally saved before the selection changes; this is the safety net.
-        if !dirty.isEmpty { commit(recordingPosition: false) }
+        if !dirty.isEmpty || !dirtyTitles.isEmpty { commit(recordingPosition: false) }
         let content = EditorContent(files: files, mode: mode)
         isQuiet = true
         segments = content.segments
@@ -189,14 +191,15 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         shown = files.map { ShownFile(id: $0.id, kind: $0.kind, indents: $0.indents) }
         loadedVersions = [:]
         if let model {
-            for segment in segments {
+            for segment in segments where segment.role != .title {
                 let part = TextPart(fileID: segment.fileID, inOutline: segment.role == .outline)
                 loadedVersions[part] = model.textVersion(of: part)
             }
         }
         textView.isEditable = mode != .reading
         textView.undoManager?.removeAllActions()
-        textView.setSelectedRange(NSRange(location: segments.first?.range.location ?? 0, length: 0))
+        let firstText = segments.first { $0.role != .title } ?? segments.first
+        textView.setSelectedRange(NSRange(location: firstText?.range.location ?? 0, length: 0))
         resetTypingAttributes()
         let restoresCursor = !isTakingFocus
         DispatchQueue.main.async { [weak self] in
@@ -286,6 +289,33 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
             marker.title = title
             if let range = range(of: marker) { refreshDisplay(in: range) }
         }
+        // A file renamed elsewhere (the sidebar, the header, the other pane): its title line
+        // follows, unless it's being edited here.
+        guard let storage = textView.textStorage else { return }
+        for index in segments.indices where segments[index].role == .title {
+            let segment = segments[index]
+            guard !dirtyTitles.contains(segment.fileID), let title = titles[segment.fileID],
+                  NSMaxRange(segment.range) <= storage.length,
+                  (storage.string as NSString).substring(with: segment.range) != title else { continue }
+            let selection = textView.selectedRange()
+            let delta = (title as NSString).length - segment.range.length
+            isQuiet = true
+            storage.replaceCharacters(in: segment.range, with: NSAttributedString(string: title))
+            isQuiet = false
+            segments[index].range.length += delta
+            for later in segments.indices where later > index {
+                segments[later].range.location += delta
+            }
+            annotationCache = [:]
+            refreshTitleLine(of: segment.fileID)
+            // The text moved under any undo steps recorded before it.
+            textView.undoManager?.removeAllActions()
+            if selection.location > NSMaxRange(segment.range) {
+                textView.setSelectedRange(NSRange(location: selection.location + delta, length: selection.length))
+            } else if selection.location >= segment.range.location {
+                textView.setSelectedRange(NSRange(location: min(selection.location, NSMaxRange(segments[index].range)), length: 0))
+            }
+        }
     }
 
     private func range(of marker: EditorMarker) -> NSRange? {
@@ -319,6 +349,12 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
             flashBlocked()
             return false
         }
+        // A title is one line.
+        if let strings = replacementStrings, strings.contains(where: { $0.contains("\n") }),
+           affectedRanges.contains(where: { segmentIndex(containing: $0.rangeValue).map { segments[$0].role == .title } ?? false }) {
+            NSSound.beep()
+            return false
+        }
         return true
     }
 
@@ -336,6 +372,16 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
             for later in segments.indices where later > index {
                 segments[later].range.location += delta
             }
+        }
+        if segments[index].role == .title {
+            // Saved as the file's name; it has no comments or indents to keep up to date.
+            if editedMask.contains(.editedCharacters) {
+                dirtyTitles.insert(segments[index].fileID)
+                scheduleSave()
+                let fileID = segments[index].fileID
+                DispatchQueue.main.async { [weak self] in self?.refreshTitleLine(of: fileID) }
+            }
+            return
         }
         markDirty(segments[index].fileID)
 
@@ -372,6 +418,22 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         }
     }
 
+    /// Redraws a file's title line and the line after it. The text system restyles the edited
+    /// lines before the segment map has caught up with the edit, so after a title gets shorter
+    /// the first line of the file's text was styled as if it were still part of the title.
+    private func refreshTitleLine(of fileID: FileID) {
+        guard let storage = textView.textStorage,
+              let title = segments.first(where: { $0.fileID == fileID && $0.role == .title })?.range,
+              NSMaxRange(title) <= storage.length else { return }
+        let string = storage.string as NSString
+        var stop = min(NSMaxRange(title) + 1, string.length)
+        if stop < string.length {
+            let lineEnd = string.range(of: "\n", options: .literal, range: NSRange(location: stop, length: string.length - stop)).location
+            stop = lineEnd == NSNotFound ? string.length : lineEnd + 1
+        }
+        refreshDisplay(in: NSRange(location: title.location, length: stop - title.location))
+    }
+
     /// Rebuilds segment ranges from where the marker lines actually are, following the recorded
     /// layout: each marker ends the segment before it, and the next segment starts a line later.
     private func resyncSegments() {
@@ -387,14 +449,24 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         var rebuilt = segments
         var markerIndex = 0
         var start = 0
+        let string = storage.string as NSString
         for piece in pieces {
             switch piece {
             case .marker:
                 start = markerLocations[markerIndex] + 2
                 markerIndex += 1
             case .segment(let index):
-                let end = markerIndex < markerLocations.count ? markerLocations[markerIndex] - 1 : storage.length
+                start = min(start, storage.length)
+                let end: Int
+                if rebuilt[index].role == .title {
+                    // A title is one line, and its file's text follows on the next.
+                    let lineEnd = string.range(of: "\n", options: .literal, range: NSRange(location: start, length: storage.length - start)).location
+                    end = lineEnd == NSNotFound ? storage.length : lineEnd
+                } else {
+                    end = markerIndex < markerLocations.count ? markerLocations[markerIndex] - 1 : storage.length
+                }
                 rebuilt[index].range = NSRange(location: start, length: max(0, end - start))
+                start = end + 1
             }
         }
         segments = rebuilt
@@ -499,10 +571,36 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         let raw = (attributes[.pemeriaStyle] as? NSNumber)?.uint8Value ?? 0
         let location = textView.selectedRange().location
         let segment = segments.first { $0.contains(NSRange(location: location, length: 0)) }
+        if segment?.role == .title {
+            attributes[.pemeriaStyle] = nil
+            attributes[.font] = titleFont()
+            attributes[.foregroundColor] = NSColor.textColor
+            attributes[.paragraphStyle] = titleParagraphStyle()
+            textView.typingAttributes = attributes
+            return
+        }
         attributes[.font] = font(for: raw)
         attributes[.foregroundColor] = segment?.role == .outline && dimsOutlines ? NSColor.secondaryLabelColor : NSColor.textColor
         attributes[.paragraphStyle] = paragraphStyle(indented: segment?.isIndented ?? false)
         textView.typingAttributes = attributes
+    }
+
+    /// Return on a title line goes down to the start of the file's text instead of breaking
+    /// the line.
+    func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        guard [#selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)),
+               #selector(NSResponder.insertParagraphSeparator(_:))].contains(commandSelector),
+              isInTitle else { return false }
+        let selection = textView.selectedRange()
+        if let index = segmentIndex(containing: selection), index + 1 < segments.count {
+            textView.setSelectedRange(NSRange(location: segments[index + 1].range.location, length: 0))
+        }
+        return true
+    }
+
+    /// Whether the cursor or selection is on a title line.
+    private var isInTitle: Bool {
+        segmentIndex(containing: textView.selectedRange()).map { segments[$0].role == .title } ?? false
     }
 
     // MARK: Clicks on margin and marker icons
@@ -557,7 +655,7 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
     /// Types `opener` and a space at the start of the selection, with a space before it if the
     /// character before isn't one already (a comment or bookmark only starts after whitespace).
     private func insertOpener(_ opener: String) {
-        guard textView.isEditable, let storage = textView.textStorage else { NSSound.beep(); return }
+        guard textView.isEditable, !isInTitle, let storage = textView.textStorage else { NSSound.beep(); return }
         let location = textView.selectedRange().location
         let string = storage.string as NSString
         let needsSpace = location > 0 && !(Character(UnicodeScalar(string.character(at: location - 1)) ?? " ").isWhitespace)
@@ -569,6 +667,7 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         guard textView.isEditable, let storage = textView.textStorage else { NSSound.beep(); return }
         let cursor = textView.selectedRange().location
         guard let index = segments.firstIndex(where: { $0.contains(NSRange(location: cursor, length: 0)) }),
+              segments[index].role != .title,
               let map = annotations(forSegment: index) else { NSSound.beep(); return }
         let segmentStart = segments[index].range.location
         var line = map.line(containing: cursor - segmentStart)
@@ -704,6 +803,8 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
 
     func toggle(_ trait: InlineStyle) {
         guard let storage = textView.textStorage else { return }
+        // Titles are plain: a file's name has no italics.
+        if isInTitle { NSSound.beep(); return }
         let ranges = textView.selectedRanges.map(\.rangeValue).filter { $0.length > 0 }
 
         if ranges.isEmpty {
@@ -765,6 +866,12 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         }
 
         let range = textView.selectedRange()
+        if isInTitle {
+            // Into a title: one line, no italics.
+            result.mutableString.replaceOccurrences(of: "\n", with: " ", options: .literal,
+                                                    range: NSRange(location: 0, length: result.length))
+            result.removeAttribute(.pemeriaStyle, range: NSRange(location: 0, length: result.length))
+        }
         guard textView.shouldChangeText(in: range, replacementString: result.string) else { return false }
         storage.replaceCharacters(in: range, with: result)
         textView.didChangeText()
@@ -816,6 +923,20 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         return font
     }
 
+    /// A file's title line: the text's own typeface, larger and bold.
+    private func titleFont() -> NSFont {
+        let bold = font(for: InlineStyle.bold.rawValue)
+        return NSFont(descriptor: bold.fontDescriptor, size: CGFloat(style.fontSize * 1.5)) ?? bold
+    }
+
+    private func titleParagraphStyle() -> NSParagraphStyle {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineHeightMultiple = 1.1
+        paragraph.paragraphSpacing = CGFloat(style.fontSize * 0.9)
+        paragraph.alignment = .natural
+        return paragraph
+    }
+
     private func paragraphStyle(indented: Bool) -> NSParagraphStyle {
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineHeightMultiple = CGFloat(style.lineHeight)
@@ -838,7 +959,10 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         let whole = NSRange(location: 0, length: display.length)
 
         if display.length > 0, let marker = display.attribute(.pemeriaMarker, at: 0, effectiveRange: nil) as? EditorMarker {
-            let height: CGFloat = marker.kind == .fileHeader ? 64 : 44
+            let height: CGFloat = switch marker.kind {
+            case .fileHeader: marker.showsTitle ? 64 : 48
+            case .outlineDivider: 44
+            }
             display.addAttributes([
                 .paragraphStyle: markerParagraphStyle(height: height),
                 .foregroundColor: NSColor.clear,
@@ -848,6 +972,14 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         }
 
         let segment = segments.first { $0.contains(NSRange(location: range.location, length: 0)) }
+        if segment?.role == .title {
+            display.setAttributes([
+                .font: titleFont(),
+                .foregroundColor: NSColor.textColor,
+                .paragraphStyle: titleParagraphStyle(),
+            ], range: whole)
+            return NSTextParagraph(attributedString: display)
+        }
         let isFirst = segment.map { $0.range.location == range.location } ?? false
         let indented = (segment?.isIndented ?? false) && !isFirst
         display.addAttribute(.paragraphStyle, value: paragraphStyle(indented: indented), range: whole)
@@ -887,7 +1019,8 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
             let line = paragraph.attributedString
             if let marker = line.attribute(.pemeriaMarker, at: 0, effectiveRange: nil) as? EditorMarker {
                 let kind: MarkerFragment.Kind = switch marker.kind {
-                case .fileHeader: .fileHeader(fileID: marker.fileID, title: marker.title, copied: recentlyCopied.contains(marker.fileID))
+                case .fileHeader: .fileHeader(fileID: marker.fileID, title: marker.showsTitle ? marker.title : nil,
+                                              copied: recentlyCopied.contains(marker.fileID))
                 case .outlineDivider: .outlineDivider
                 }
                 let fragment = MarkerFragment(textElement: textElement, range: textElement.elementRange, kind: kind)
@@ -918,6 +1051,11 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
 
     private func markDirty(_ id: FileID) {
         dirty.insert(id)
+        scheduleSave()
+    }
+
+    /// Saves a second after typing pauses.
+    private func scheduleSave() {
         saveTimer?.invalidate()
         saveTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated { self?.commit() }
@@ -929,7 +1067,18 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         saveTimer?.invalidate()
         saveTimer = nil
         if recordingPosition { recordPosition() }
-        guard let model, !dirty.isEmpty, let storage = textView.textStorage else { return }
+        guard let model, let storage = textView.textStorage else { return }
+        // Edited title lines rename their files. One emptied out is left as it is, unsaved,
+        // while you type a new name; if you leave it empty the file keeps its old name.
+        for id in dirtyTitles {
+            guard let segment = segments.first(where: { $0.fileID == id && $0.role == .title }),
+                  NSMaxRange(segment.range) <= storage.length else { dirtyTitles.remove(id); continue }
+            let title = (storage.string as NSString).substring(with: segment.range)
+            guard !title.trimmingCharacters(in: .whitespaces).isEmpty else { continue }
+            model.rename(id, to: title)
+            dirtyTitles.remove(id)
+        }
+        guard !dirty.isEmpty else { return }
         for id in dirty {
             let body = segments.first { $0.fileID == id && $0.role == .body }
                 .map { TextBridge.blocks(from: storage.attributedSubstring(from: $0.range)) }
@@ -971,7 +1120,8 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
     private func recordPosition() {
         guard remembersPosition, let model, !shown.isEmpty else { return }
         let cursor = textView.selectedRange().location
-        guard let segment = segments.first(where: { $0.contains(NSRange(location: cursor, length: 0)) }) else { return }
+        guard let segment = segments.first(where: { $0.contains(NSRange(location: cursor, length: 0)) }),
+              segment.role != .title else { return }
         let offset = caretRect(at: cursor).map { $0.minY - textView.visibleRect.minY } ?? 0
         model.positions[segment.fileID] = FilePosition(
             inOutline: segment.role == .outline,
@@ -986,7 +1136,7 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         guard remembersPosition, let model else { return }
         let candidates = shown.compactMap { file in model.positions[file.id].map { (file.id, $0) } }
         guard let (id, position) = candidates.max(by: { $0.1.lastActive < $1.1.lastActive }),
-              let segment = segments.first(where: { $0.fileID == id && ($0.role == .outline) == position.inOutline })
+              let segment = segments.first(where: { $0.fileID == id && $0.role == (position.inOutline ? .outline : .body) })
         else {
             textView.scroll(.zero)
             return
