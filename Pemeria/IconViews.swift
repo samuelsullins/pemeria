@@ -126,7 +126,7 @@ struct IconsPane: View {
                             }
                         }
                         if model.project.manifest.icons.isEmpty {
-                            Text("No labels yet. Press + to make one.")
+                            Text("No labels yet. Click New Label to make one.")
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                                 .padding(12)

@@ -30,8 +30,8 @@ struct SearchPanel: View {
                                        limit: model.showReplace ? .max : Self.shownPerKind)
         let results = Self.capped(all)
         let terms = Project.searchTerms(model.searchQuery)
-        let replaceBlocker: String? = terms.count > 1 ? "Replace works on one term at a time, not Mira + Kate searches."
-            : wordForms ? "Turn off Word Forms to replace: “ran” would become the replacement, not its past tense."
+        let replaceBlocker: String? = terms.count > 1 ? "Replace works on one term at a time, not searches with several terms joined by +."
+            : wordForms ? "Turn off Word Forms to replace. Otherwise “ran” would be replaced with the exact word you typed."
             : nil
         VStack(spacing: 0) {
             VStack(spacing: 6) {
