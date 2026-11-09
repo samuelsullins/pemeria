@@ -66,10 +66,11 @@ private struct CommentsSection: View {
                             model.setCommentDone(comment, !comment.isDone)
                         } label: {
                             Image(systemName: comment.isDone ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(comment.isDone ? Theme.accentColor : Color.secondary)
+                                .foregroundStyle(Theme.buttonGray)
                                 .frame(width: 16)
+                                .contentShape(Rectangle())
                         }
-                        .buttonStyle(.borderless)
+                        .buttonStyle(.plain)
                         .help(comment.isDone ? "Mark as not done" : "Mark as done (//x)")
                         Button {
                             model.jump(to: comment.location)
@@ -200,11 +201,11 @@ struct WideSwitch<Value: Hashable>: View {
                 } label: {
                     Text(option.title)
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(selected ? Color.white : Color.secondary)
+                        .foregroundStyle(selected ? Theme.buttonOn : Theme.buttonGray)
                         .lineLimit(1)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 3)
-                        .background(RoundedRectangle(cornerRadius: 5).fill(selected ? Theme.accentColor : Color.clear))
+                        .background(RoundedRectangle(cornerRadius: 5).fill(selected ? Theme.segmentFill : Color.clear))
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -235,9 +236,9 @@ struct PanelFilterField: View {
                     text = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.plain)
                 .help("Clear")
             }
         }

@@ -114,7 +114,9 @@ Mara reaches the lighthouse. Finds the logbook. Storm hits.
 
 The sidebar and the right panel each toggle on and off. One project is open at a time **(assumed)**; File → Open Recent switches between projects, and the last project reopens on launch.
 
-**Accent colour:** an ocean blue (`#1E6A8D` in light mode, `#4A9CC4` in dark), not the system blue. It's used for the sidebar selection, the cursor and text selection, bookmarks and buttons, whatever accent colour is chosen in System Settings.
+**Buttons are gray:** every button and switch (word-buttons, Draft | Outline, Selected Files | All Files, search options) is gray, a shade darker while on, all in one plain style. The blue is for selection, the cursor, bookmarks and the active pane, not buttons.
+
+**Accent colour:** an ocean blue (`#1E6A8D` in light mode, `#4A9CC4` in dark), not the system blue. It's used for the sidebar selection, the cursor and text selection, and bookmarks, whatever accent colour is chosen in System Settings.
 
 ---
 

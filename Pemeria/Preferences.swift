@@ -107,6 +107,13 @@ enum Theme {
     static let accent = NSColor(named: "AccentColor") ?? .controlAccentColor
     static let accentColor = Color(nsColor: accent)
 
+    /// Buttons and switches are gray, never the accent: fixed system grays, since a button
+    /// turns relative styles like `.secondary` into shades of its tint.
+    static let buttonGray = Color(nsColor: .secondaryLabelColor)
+    /// A button or switch segment that's on: darker words…
+    static let buttonOn = Color(nsColor: .labelColor)
+    /// …and, for a switch, a gray pill behind them.
+    static let segmentFill = Color(nsColor: .labelColor).opacity(0.13)
     static func apply() {
         switch UserDefaults.standard.string(forKey: PreferenceKey.theme) {
         case "light": NSApp.appearance = NSAppearance(named: .aqua)

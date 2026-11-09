@@ -93,7 +93,7 @@ struct IconsPane: View {
                     } label: {
                         HeaderWordButton(title: "New Label")
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.plain)
                     .help("New Label")
                 }
                 Button {
@@ -101,10 +101,12 @@ struct IconsPane: View {
                 } label: {
                     Image(systemName: "chevron.right")
                         .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Theme.buttonGray)
                         .rotationEffect(.degrees(isOpen ? 90 : 0))
                         .frame(width: 14)
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.plain)
                 .help(isOpen ? "Hide Labels" : "Show Labels")
             }
 
@@ -294,6 +296,8 @@ struct IconDetailEditor: View {
                     }
                 }
                 .buttonStyle(.borderless)
+                // Gray like every other button (Delete keeps its red: it's destructive).
+                .tint(Theme.buttonGray)
             }
             .padding(14)
             .frame(width: 300)

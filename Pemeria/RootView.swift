@@ -140,7 +140,7 @@ private struct DocumentsHeader: View {
             HStack(spacing: 10) { buttons }
                 .fixedSize()
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(.plain)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
     }
@@ -199,19 +199,24 @@ private struct WrappingHeaderLayout: Layout {
     }
 }
 
-/// A word, and its shortcut if it has one, for the buttons in section headings.
+/// A word, and its shortcut if it has one: every word-button in Pemeria (section headings,
+/// the editor header, View Trash). Gray; darker while what it names is on. Use it with
+/// `.buttonStyle(.plain)` so the button doesn't tint it.
 struct HeaderWordButton: View {
     let title: String
     var shortcut: String?
+    var isOn = false
 
     var body: some View {
         HStack(spacing: 4) {
             Text(title)
                 .font(.system(size: 12))
+                .foregroundStyle(isOn ? Theme.buttonOn : Theme.buttonGray)
             if let shortcut { ShortcutHint(keys: shortcut) }
         }
         .lineLimit(1)
         .fixedSize()
+        .contentShape(Rectangle())
     }
 }
 
@@ -221,13 +226,14 @@ private struct SidebarFooter: View {
 
     var body: some View {
         HStack {
-            Spacer()
-            Button("View Trash") {
+            Button {
                 model.isShowingTrash = true
+            } label: {
+                HeaderWordButton(title: "View Trash")
             }
-            .font(.system(size: 12))
-            .buttonStyle(.borderless)
+            .buttonStyle(.plain)
             .help("See the files moved to the trash, and restore them")
+            Spacer()
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)

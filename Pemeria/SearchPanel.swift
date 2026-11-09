@@ -40,10 +40,12 @@ struct SearchPanel: View {
                         model.showReplace.toggle()
                     } label: {
                         Image(systemName: "chevron.right")
+                            .foregroundStyle(Theme.buttonGray)
                             .rotationEffect(.degrees(model.showReplace ? 90 : 0))
                             .frame(width: 12)
+                            .contentShape(Rectangle())
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.plain)
                     .help(model.showReplace ? "Hide Replace" : "Show Replace (⌥⌘F)")
                     TextField("Search Everything", text: Binding(get: { model.searchQuery }, set: { model.searchQuery = $0 }),
                               selection: $querySelection)
@@ -66,8 +68,10 @@ struct SearchPanel: View {
                         model.endSearch()
                     } label: {
                         Image(systemName: "xmark")
+                            .foregroundStyle(Theme.buttonGray)
+                            .contentShape(Rectangle())
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.plain)
                     .help("Close Search (Esc)")
                 }
                 if model.showReplace {
@@ -266,8 +270,8 @@ private struct Chip: View {
                 .font(.system(size: 11, weight: isOn ? .semibold : .regular))
                 .padding(.horizontal, 7)
                 .padding(.vertical, 3)
-                .foregroundStyle(isOn ? Color.white : Color.primary)
-                .background(Capsule().fill(isOn ? Theme.accentColor : Color.primary.opacity(0.07)))
+                .foregroundStyle(isOn ? Theme.buttonOn : Theme.buttonGray)
+                .background(Capsule().fill(isOn ? Theme.segmentFill : Color(nsColor: .labelColor).opacity(0.05)))
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -334,7 +338,7 @@ private struct ResultRow: View {
                 Button(action: toggleIncluded) {
                     Image(systemName: isIncluded ? "checkmark.square.fill" : "square")
                         .font(.system(size: 12))
-                        .foregroundStyle(isSelected ? Color.white : isIncluded ? Theme.accentColor : Color.secondary)
+                        .foregroundStyle(isSelected ? Color.white : Theme.buttonGray)
                 }
                 .buttonStyle(.plain)
                 .help(isIncluded ? "Leave this one out of Replace" : "Include this one in Replace")

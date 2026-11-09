@@ -103,14 +103,14 @@ private struct EditorHeader: View {
 
     private func row(compact: Bool, hints: Bool) -> some View {
         HeaderLayout {
-            HStack(spacing: compact ? 10 : 6) {
+            HStack(spacing: compact ? 10 : 14) {
                 ReadModeButton(model: model, pane: pane, compact: compact, hint: hints)
                 CopyMenu(model: model, files: files, compact: compact)
                 IndentButton(model: model, files: files, compact: compact)
             }
             .fixedSize()
             title
-            HStack(spacing: compact ? 10 : 6) {
+            HStack(spacing: compact ? 10 : 14) {
                 // Too crushed for words, too crushed for the switch: ⇧⌘O and the View menu
                 // still switch views.
                 if !compact {
@@ -169,27 +169,6 @@ private struct HeaderLayout: Layout {
     }
 }
 
-/// A word-button in the editor header: quiet, and shaded while what it names is on, with its
-/// keyboard shortcut after it when there's room.
-private struct HeaderTextLabel: View {
-    let title: String
-    var isOn = false
-    var shortcut: String?
-
-    var body: some View {
-        HStack(spacing: 5) {
-            Text(title)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(isOn ? Color.primary : Color.secondary)
-            if let shortcut { ShortcutHint(keys: shortcut) }
-        }
-        .padding(.horizontal, 7)
-        .padding(.vertical, 3)
-        .background(Capsule().fill(Color.primary.opacity(isOn ? 0.1 : 0)))
-        .contentShape(Capsule())
-    }
-}
-
 /// A button's keyboard shortcut, drawn small like a key cap: ⇧⌘R. Always gray: fixed system
 /// colours rather than `.tertiary` and friends, which inside a button turn into shades of the
 /// accent blue.
@@ -227,7 +206,7 @@ private struct ReadModeButton: View {
                     .foregroundStyle(reading ? Color.primary : Color.secondary)
                     .frame(width: 18)
             } else {
-                HeaderTextLabel(title: "Read Mode", isOn: reading, shortcut: hint ? "⇧⌘R" : nil)
+                HeaderWordButton(title: "Read Mode", shortcut: hint ? "⇧⌘R" : nil, isOn: reading)
             }
         }
         .buttonStyle(.plain)
@@ -254,7 +233,7 @@ private struct CopyMenu: View {
                 Image(systemName: copied ? "checkmark" : "doc.on.doc.fill")
                     .foregroundStyle(Color.secondary)
             } else {
-                HeaderTextLabel(title: copied ? "Copied" : "Copy")
+                HeaderWordButton(title: copied ? "Copied" : "Copy")
             }
         }
         // A plain button rather than the borderless menu style, which tints its label with the
@@ -345,7 +324,7 @@ private struct IndentButton: View {
                     .foregroundStyle(indented ? Color.primary : Color.secondary)
                     .frame(width: 18)
             } else {
-                HeaderTextLabel(title: indented ? "No Indent" : "Use Indent")
+                HeaderWordButton(title: indented ? "No Indent" : "Use Indent")
             }
         }
         .buttonStyle(.plain)
@@ -375,10 +354,10 @@ private struct DraftOutlineToggle: View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(selected ? Color.white : Color.secondary)
+                .foregroundStyle(selected ? Theme.buttonOn : Theme.buttonGray)
                 .padding(.horizontal, 9)
                 .padding(.vertical, 3)
-                .background(Capsule().fill(selected ? Theme.accentColor : Color.clear))
+                .background(Capsule().fill(selected ? Theme.segmentFill : Color.clear))
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -403,7 +382,7 @@ private struct SplitButton: View {
                     .frame(width: 18)
                     .contentShape(Rectangle())
             } else {
-                HeaderTextLabel(title: "Split View", shortcut: hint ? "⌘\\" : nil)
+                HeaderWordButton(title: "Split View", shortcut: hint ? "⌘\\" : nil)
             }
         }
         .buttonStyle(.plain)
@@ -753,8 +732,6 @@ private struct PinnedOutlinePane: View {
                 } label: {
                     // Gray like the editor header's words: a plain button, which doesn't tint.
                     HeaderWordButton(title: "Unpin Outline", shortcut: "⌥⌘O")
-                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
-                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .help("Put the outlines back under each file (⌥⌘O)")
