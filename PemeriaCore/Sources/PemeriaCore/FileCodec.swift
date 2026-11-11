@@ -9,7 +9,7 @@ import Foundation
 /// parent:
 /// order: V
 /// kind: draft
-/// icons: inciting-incident, crisis
+/// icons: inciting-incident, -, crisis
 /// ---
 /// The lamp had been dark for *eleven* years.
 /// <!-- bookmark b7c1 @12: The storm starts -->
@@ -24,6 +24,8 @@ public enum FileCodec {
     static let outlineDivider = "<!-- outline -->"
     static let bookmarkPrefix = "<!-- bookmark "
     static let markerSuffix = " -->"
+    /// Stands for an empty label slot in the `icons:` line, so the slots after it keep their places.
+    static let emptySlot = "-"
 
     public static func encode(_ file: PemeriaFile) -> String {
         let file = file.canonicalized()
@@ -33,7 +35,7 @@ public enum FileCodec {
         lines.append(field("parent", file.parent?.rawValue ?? ""))
         lines.append(field("order", file.order))
         lines.append(field("kind", file.kind.rawValue))
-        lines.append(field("icons", file.icons.joined(separator: ", ")))
+        lines.append(field("icons", file.icons.map { $0.isEmpty ? emptySlot : $0 }.joined(separator: ", ")))
         // Only written once chosen, so files that never touched it are unchanged.
         if let indent = file.indent { lines.append(field("indent", indent ? "yes" : "no")) }
         lines += file.extraFields.map { field($0.key, $0.value) }
@@ -74,9 +76,9 @@ public enum FileCodec {
                     default: file.extraFields.append(ExtraField(key: key, value: value))
                     }
                 case "icons":
-                    file.icons = value.split(separator: ",")
+                    // Positional: "-" (or nothing) between commas is an empty slot.
+                    file.icons = value.split(separator: ",", omittingEmptySubsequences: false)
                         .map { $0.trimmingCharacters(in: .whitespaces) }
-                        .filter { !$0.isEmpty }
                 default: file.extraFields.append(ExtraField(key: key, value: value))
                 }
             }

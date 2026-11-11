@@ -62,6 +62,11 @@ struct PemeriaCommands: Commands {
             Button("New Note") { app.project?.newFile(kind: .note) }
                 .keyboardShortcut("n", modifiers: [.command, .option])
                 .disabled(app.project == nil)
+            Button(app.project?.kindToggleTarget == .draft ? "Turn into Draft" : "Turn into Note") {
+                app.project?.toggleKindOfSelection()
+            }
+            .keyboardShortcut("n", modifiers: [.command, .control])
+            .disabled(app.project?.selection.isEmpty ?? true)
             Divider()
             Button("New Project…") { app.showNewProjectPanel() }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
@@ -109,16 +114,10 @@ struct PemeriaCommands: Commands {
                 app.rightPanelVisible.toggle()
             }
             .keyboardShortcut("0", modifiers: [.command, .option])
-            Button(app.project.map { $0.isReading(pane: $0.activePane) } == true ? "Exit Read Mode" : "Read Mode") {
-                app.project?.toggleReadMode()
-            }
-            .keyboardShortcut("r", modifiers: [.command, .shift])
-            .disabled(app.project == nil)
-            Button(app.project.map { $0.isOutlineView(pane: $0.activePane) } == true ? "Draft View" : "Outline View") {
-                if let project = app.project { project.setOutlineView(!project.isOutlineView(pane: project.activePane)) }
-            }
-            .keyboardShortcut("o", modifiers: [.command, .shift])
-            .disabled(app.project == nil)
+            // Read → Draft → Outline (SPEC.md §12).
+            Button("Next View Mode") { app.project?.cycleViewMode() }
+                .keyboardShortcut("r")
+                .disabled(app.project?.selection.isEmpty ?? true)
             Button(app.project?.isSplit == true ? "Close Split View" : "Split View") {
                 app.project?.toggleSplit()
             }

@@ -53,6 +53,7 @@ struct ProjectView: View {
                 VStack(spacing: 0) {
                     DocumentsHeader(model: model)
                     Divider()
+                    WorkingFileRow(model: model)
                     SidebarView(model: model)
                     SidebarFooter(model: model)
                     IconsPane(model: model)
@@ -74,7 +75,13 @@ struct ProjectView: View {
                 .inspectorColumnWidth(min: 220, ideal: 270, max: 420)
             }
         }
-        .navigationTitle(model.project.manifest.name)
+        // The system's own title, so the toolbar keeps its usual layout. Given a binding, and
+        // with the editor toolbar role, SwiftUI offers renaming it from the title bar.
+        .navigationTitle(Binding(
+            get: { model.project.manifest.name },
+            set: { model.renameProject(to: $0) }
+        ))
+        .toolbarRole(.editor)
         .onChange(of: model.iconEditorRequest) { columns = .all }
         .sheet(isPresented: Binding(get: { model.historyFile != nil }, set: { if !$0 { model.historyFile = nil } })) {
             if let id = model.historyFile {
@@ -122,6 +129,76 @@ struct FixedMinimumSize<Content: View>: View {
                 .frame(width: geometry.size.width, height: geometry.size.height)
         }
         .frame(minWidth: width, minHeight: height)
+    }
+}
+
+/// The Working File at the top of the file list, under a small "Working File ⌘J" title, so
+/// it's one click away (SPEC.md §8). Laid out like the file rows below it (the name and label
+/// slots line up with theirs), with a thin line under it; the file stays in its place in the
+/// list too. Hidden when there isn't one.
+private struct WorkingFileRow: View {
+    let model: ProjectModel
+    @State private var hovering = false
+    @State private var width: CGFloat = 300
+
+    /// Where a top-level row's name starts in the list below, and how far its slots end
+    /// from the right edge (the system source-list insets, plus SidebarCell's own layout).
+    private static let nameLeading: CGFloat = 48
+    private static let iconLeading: CGFloat = 27
+    private static let slotsTrailing: CGFloat = 18
+    /// The system's highlight inset at each side of a row.
+    private static let rowInset: CGFloat = 10
+
+    var body: some View {
+        if let id = model.project.manifest.workingFile, let file = model.project.files[id] {
+            VStack(alignment: .leading, spacing: 2) {
+                // Sized like the Documents heading's buttons, and lined up with them.
+                HStack(spacing: 4) {
+                    Text("Working File")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.buttonGray)
+                    ShortcutHint(keys: "⌘J")
+                }
+                .padding(.leading, 12)
+                Button {
+                    model.jumpToWorkingFile()
+                } label: {
+                    ZStack(alignment: .leading) {
+                        if file.kind == .note {
+                            Image(systemName: "note.text")
+                                .foregroundStyle(.secondary)
+                                .frame(width: 16)
+                                .padding(.leading, Self.iconLeading - Self.rowInset)
+                        }
+                        HStack(spacing: 6) {
+                            Text(file.title)
+                                .font(.system(size: 13))
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                            Spacer(minLength: 0)
+                            // Folds with the rows below, at the same sidebar width.
+                            SlotSquares(slots: model.project.iconSlots(of: id),
+                                        isCollapsed: width < SidebarCell.collapseBelowWidth)
+                        }
+                        .padding(.leading, Self.nameLeading - Self.rowInset)
+                        .padding(.trailing, Self.slotsTrailing - Self.rowInset)
+                    }
+                    .frame(height: 24)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(hovering ? 0.06 : 0)))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, Self.rowInset)
+                .onHover { hovering = $0 }
+                .help("Jump to the Working File (⌘J)")
+            }
+            .padding(.top, 10)
+            .padding(.bottom, 8)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+            Divider()
+                .padding(.horizontal, Self.rowInset)
+                .padding(.bottom, 6)
+        }
     }
 }
 

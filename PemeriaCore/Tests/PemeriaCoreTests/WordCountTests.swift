@@ -77,9 +77,41 @@ struct IconsAndWorkingFileTests {
         _ = project.toggleIcon("crisis", on: [a.id])
         let changed = project.setIconDefinitions(IconDefinition.defaults.filter { $0.id != "climax" })
         #expect(changed.map(\.id) == [a.id])
-        #expect(project.files[a.id]!.icons == ["crisis"])
+        // Its slot stays, empty, so crisis keeps its place.
+        #expect(project.files[a.id]!.icons == ["", "crisis"])
+        #expect(project.iconSlots(of: a.id).map { $0?.id } == [nil, "crisis", nil])
         let fresh = IconDefinition.generateID(avoiding: project.manifest.icons)
         #expect(fresh.hasPrefix("icon-") && !project.manifest.icons.contains { $0.id == fresh })
+    }
+
+    @Test func labelSlots() {
+        var project = Project(manifest: ProjectManifest(name: "x"), files: [:])
+        let a = project.createFile(kind: .draft, title: "A")
+        #expect(project.iconSlots(of: a.id).map { $0?.id } == [nil, nil, nil])
+
+        // Straight into slot 3, leaving 1 and 2 empty.
+        #expect(project.setIcon("climax", slot: 2, of: a.id) != nil)
+        #expect(project.files[a.id]!.icons == ["", "", "climax"])
+        #expect(project.freeIconSlot(of: a.id) == 0)
+        // Moving a label to another slot takes it out of the first.
+        _ = project.setIcon("climax", slot: 0, of: a.id)
+        #expect(project.iconSlots(of: a.id).map { $0?.id } == ["climax", nil, nil])
+        #expect(project.files[a.id]!.icons == ["climax"])
+        // Same again: no change.
+        #expect(project.setIcon("climax", slot: 0, of: a.id) == nil)
+        // Toggling fills the first empty slot.
+        _ = project.setIcon("crisis", slot: 2, of: a.id)
+        _ = project.toggleIcon("resolution", on: [a.id])
+        #expect(project.files[a.id]!.icons == ["climax", "resolution", "crisis"])
+        // Full: toggling another one does nothing.
+        #expect(project.toggleIcon("turning-point", on: [a.id]).isEmpty)
+        // Emptying a slot keeps the others where they are.
+        _ = project.setIcon(nil, slot: 1, of: a.id)
+        #expect(project.iconSlots(of: a.id).map { $0?.id } == ["climax", nil, "crisis"])
+        #expect(project.icons(of: a.id).map(\.id) == ["climax", "crisis"])
+        // Bad slot, unknown label.
+        #expect(project.setIcon("climax", slot: 3, of: a.id) == nil)
+        #expect(project.setIcon("nope", slot: 1, of: a.id) == nil)
     }
 
     @Test func workingFile() {

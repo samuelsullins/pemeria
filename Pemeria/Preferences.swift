@@ -12,6 +12,8 @@ enum PreferenceKey {
     static let justified = "editorJustified"
     static let theme = "appTheme"
     static let spellCheck = "editorSpellCheck"
+    /// Typewriter scrolling: "inPlace" (the default), "middle" or "off". See EditorTextView.
+    static let typewriter = "editorTypewriterMode"
 }
 
 /// The editor's typography, read from Preferences.
@@ -48,6 +50,7 @@ struct EditorStyle: Equatable {
             PreferenceKey.justified: true,
             PreferenceKey.theme: "system",
             PreferenceKey.spellCheck: true,
+            PreferenceKey.typewriter: "inPlace",
         ])
         // The column used to default to 680 pt and was widened. Someone who saved exactly the old
         // default gets the new one too, once; any other width they chose is left alone.
@@ -132,6 +135,7 @@ struct PreferencesView: View {
     @AppStorage(PreferenceKey.justified) private var justified = true
     @AppStorage(PreferenceKey.theme) private var theme = "system"
     @AppStorage(PreferenceKey.spellCheck) private var spellCheck = true
+    @AppStorage(PreferenceKey.typewriter) private var typewriter = "inPlace"
 
     var body: some View {
         Form {
@@ -166,6 +170,12 @@ struct PreferencesView: View {
                         .frame(width: 56, alignment: .trailing)
                 }
                 Toggle("Underline misspelled words", isOn: $spellCheck)
+                Picker("Typewriter scrolling", selection: $typewriter) {
+                    Text("Keep Line in Place").tag("inPlace")
+                    Text("Keep Line in Middle").tag("middle")
+                    Text("Off").tag("off")
+                }
+                .help("As you type, the text moves up past your line instead of the cursor moving down the window: wherever the line is when you start typing, or in the middle")
             }
             Section("Appearance") {
                 Picker("Theme", selection: $theme) {

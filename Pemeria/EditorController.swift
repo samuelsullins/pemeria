@@ -92,8 +92,14 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
+        // Room below the last line for typewriter scrolling (EditorTextView).
+        scrollView.automaticallyAdjustsContentInsets = false
+        scrollView.contentView.postsFrameChangedNotifications = true
 
         let center = NotificationCenter.default
+        observers.append(center.addObserver(forName: NSView.frameDidChangeNotification, object: scrollView.contentView, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.textView.updateOverscroll() }
+        })
         observers.append(center.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.preferencesChanged() }
         })
@@ -334,6 +340,24 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
 
     private func segmentIndex(containing range: NSRange) -> Int? {
         segments.firstIndex { $0.contains(range) }
+    }
+
+    /// ⌘A: the part of a file the cursor is in. In a title, just the title; anywhere in a file's
+    /// text (or its outline), all of that text, without the title above it.
+    var selectAllRange: NSRange? {
+        let selection = textView.selectedRange()
+        if let index = segmentIndex(containing: NSRange(location: selection.location, length: 0)) {
+            return segments[index].range
+        }
+        // On a divider or header line: the text that follows it.
+        return segments.first { $0.range.location >= selection.location && $0.role != .title }?.range
+    }
+
+    /// The font the cursor's line is shown in: the title's, or the text's. Read from the
+    /// segments rather than the typing attributes, which can briefly hold a marker's.
+    func displayFont(at location: Int) -> NSFont {
+        let segment = segments.first { $0.contains(NSRange(location: location, length: 0)) }
+        return segment?.role == .title ? titleFont() : font(for: 0)
     }
 
     var selectionIsInsideOneSegment: Bool {
@@ -1034,6 +1058,7 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
     }
 
     private func preferencesChanged() {
+        textView.updateOverscroll()
         let spellCheck = UserDefaults.standard.bool(forKey: PreferenceKey.spellCheck)
         if textView.isContinuousSpellCheckingEnabled != spellCheck { textView.isContinuousSpellCheckingEnabled = spellCheck }
         let latest = EditorStyle.current()

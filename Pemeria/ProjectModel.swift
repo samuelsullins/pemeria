@@ -87,6 +87,58 @@ final class ProjectModel {
         }
     }
 
+    /// What a pane shows (SPEC.md §12): Read (the draft, read-only, comments and outlines
+    /// hidden), Draft, or Outline. Read and Outline are kept as the two sets above.
+    enum ViewMode: CaseIterable {
+        case read, draft, outline
+
+        var title: String {
+            switch self {
+            case .read: "Read"
+            case .draft: "Draft"
+            case .outline: "Outline"
+            }
+        }
+    }
+
+    func viewMode(pane: Int) -> ViewMode {
+        if isReading(pane: pane) { return .read }
+        return isOutlineView(pane: pane) && showsDrafts(pane: pane) ? .outline : .draft
+    }
+
+    func setViewMode(_ mode: ViewMode, pane: Int? = nil) {
+        let pane = pane ?? activePane
+        guard viewMode(pane: pane) != mode else { return }
+        switch mode {
+        case .read:
+            if !isReading(pane: pane) { toggleReadMode(pane: pane) }
+        case .draft:
+            if isReading(pane: pane) { toggleReadMode(pane: pane) }
+            setOutlineView(false, pane: pane)
+        case .outline:
+            setOutlineView(true, pane: pane)
+        }
+    }
+
+    /// The modes a pane can show: no Outline with only notes, which have none.
+    func viewModes(pane: Int) -> [ViewMode] {
+        showsDrafts(pane: pane) ? ViewMode.allCases : [.read, .draft]
+    }
+
+    /// ⌘R: Read → Draft → Outline → Read, in the active pane by default.
+    func cycleViewMode(pane: Int? = nil) {
+        let pane = pane ?? activePane
+        let modes = viewModes(pane: pane)
+        let index = modes.firstIndex(of: viewMode(pane: pane)) ?? 0
+        setViewMode(modes[(index + 1) % modes.count], pane: pane)
+    }
+
+    /// Whether a pane shows any drafts. Notes have no outline, so a pane of only notes has no
+    /// Draft | Outline switch and always shows the text.
+    func showsDrafts(pane: Int) -> Bool {
+        selection(forPane: pane).contains { project.files[$0]?.kind == .draft }
+    }
+
     /// Leaves Read mode in the active pane, e.g. before jumping somewhere to edit.
     private func exitReadModeInActivePane() {
         if readingPanes.contains(activePane) { readingPanes.remove(activePane) }
@@ -326,7 +378,7 @@ final class ProjectModel {
         }
     }
 
-    /// Bumped to open the Labels pane at the bottom of the sidebar (e.g. "Edit Labels…").
+    /// Bumped to show the sidebar, with its Labels section, for "Edit Labels…".
     private(set) var iconEditorRequest = 0
 
     /// Words in the editor's selected text, or nil when nothing is selected (SPEC.md §10).
@@ -402,6 +454,17 @@ final class ProjectModel {
         save(project.setIndent(ids, to: indent), structural: false)
     }
 
+    /// What ⌃⌘N turns the selected files into: drafts if they're all notes, otherwise notes.
+    var kindToggleTarget: FileKind {
+        selection.allSatisfy { project.files[$0]?.kind == .note } ? .draft : .note
+    }
+
+    /// ⌃⌘N: Turn into Note, or Turn into Draft when every selected file is already a note.
+    func toggleKindOfSelection() {
+        guard !selection.isEmpty else { return }
+        setKind(selection, to: kindToggleTarget)
+    }
+
     func setKind(_ ids: [FileID], to kind: FileKind) {
         commitEditors()
         save(project.setKind(ids, to: kind))
@@ -460,6 +523,13 @@ final class ProjectModel {
     /// Turns an icon on or off for `ids` (SPEC.md §4).
     func toggleIcon(_ iconID: String, on ids: [FileID]) {
         save(project.toggleIcon(iconID, on: ids), structural: false)
+        appearanceRevision += 1
+    }
+
+    /// Puts a label in one of a file's slots, or empties it with nil (SPEC.md §4).
+    func setIcon(_ iconID: String?, slot: Int, of id: FileID) {
+        guard let changed = project.setIcon(iconID, slot: slot, of: id) else { return }
+        save([changed], structural: false)
         appearanceRevision += 1
     }
 
@@ -527,6 +597,14 @@ final class ProjectModel {
         selectedTextSource = count == nil ? nil : source
         if selectedTextWords != count { selectedTextWords = count }
         if count != nil, selectedTextPane != pane { selectedTextPane = pane }
+    }
+
+    /// Renames the project (its name in project.json, shown in the window's title bar).
+    func renameProject(to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != project.manifest.name else { return }
+        project.manifest.name = trimmed
+        writeManifest()
     }
 
     func setIconDefinitions(_ icons: [IconDefinition]) {

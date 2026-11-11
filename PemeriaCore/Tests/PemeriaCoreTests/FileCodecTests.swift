@@ -28,6 +28,13 @@ struct FileCodecTests {
         #expect(file.order == "V")
         #expect(file.kind == .draft)
         #expect(file.icons == ["inciting-incident", "crisis"])
+        // Empty slots are kept by position, written as "-".
+        var slotted = file
+        slotted.icons = ["", "crisis"]
+        #expect(FileCodec.encode(slotted).contains("icons: -, crisis\n"))
+        #expect(FileCodec.decode(FileCodec.encode(slotted), fallbackID: file.id).icons == ["", "crisis"])
+        slotted.icons = ["climax", "", ""]
+        #expect(FileCodec.encode(slotted).contains("icons: climax\n"))
         #expect(file.body == [
             .paragraph(Paragraph(runs: [Run("The lamp had been dark for "), Run("eleven", .italic), Run(" years.")])),
             .paragraph(Paragraph(runs: [Run("She climbed anyway. // Too abrupt? Maybe add a beat here.")])),

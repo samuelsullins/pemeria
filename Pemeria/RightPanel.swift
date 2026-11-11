@@ -57,7 +57,7 @@ private struct CommentsSection: View {
             if comments.isEmpty, !all.isEmpty {
                 EmptyPanelNote(text: "No comments match “\(filter)”.")
             } else if comments.isEmpty {
-                EmptyPanelNote(text: "Type // in the text to leave a comment. It runs to the end of the line; end it early, or carry it over several lines, with \\.")
+                EmptyPanelNote(text: "Type // to leave comments. Comments end at newlines or at a \\ character.")
             } else {
                 PanelList(comments) { comment in
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -131,7 +131,7 @@ private struct BookmarksSection: View {
             if bookmarks.isEmpty, !all.isEmpty {
                 EmptyPanelNote(text: "No bookmarks match “\(filter)”.")
             } else if bookmarks.isEmpty {
-                EmptyPanelNote(text: "Type # in the text to bookmark a spot. It runs to the end of the line, or end it early with \\.")
+                EmptyPanelNote(text: "Type # to leave bookmarks. Bookmarks end at newlines or at a \\ character.")
             } else {
                 PanelList(bookmarks) { entry in
                     // Laid out like a comment: the icon in its own column, the name and file

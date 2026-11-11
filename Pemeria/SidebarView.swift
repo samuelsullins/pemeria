@@ -22,10 +22,9 @@ struct SidebarView: NSViewRepresentable {
         outline.addTableColumn(column)
         outline.outlineTableColumn = column
         outline.headerView = nil
+        // The system's own source-list selection: full width whatever the nesting, the usual
+        // size, and it tells each row's cell when it's selected (SidebarCell.backgroundStyle).
         outline.style = .sourceList
-        // Pemeria draws the selection itself (SidebarRowView), so a selected row can keep a
-        // stripe of its label colours inside the accent fill.
-        outline.selectionHighlightStyle = .none
         outline.allowsMultipleSelection = true
         outline.indentationPerLevel = 14
         outline.dataSource = coordinator
@@ -143,36 +142,32 @@ struct SidebarView: NSViewRepresentable {
             guard let outline = outlineView else { return }
             outline.enumerateAvailableRowViews { rowView, row in
                 guard let id = id(of: outline.item(atRow: row)) else { return }
-                (rowView as? SidebarRowView)?.fillColors = fillColors(for: id)
                 if let cell = rowView.view(atColumn: 0) as? SidebarCell { configure(cell, for: id) }
             }
-        }
-
-        /// A file's icon colours, which fill its row (SPEC.md §4).
-        private func fillColors(for id: FileID) -> [NSColor] {
-            project.icons(of: id).map { NSColor(hex: $0.color) ?? .secondaryLabelColor }
         }
 
         private func configure(_ cell: SidebarCell, for id: FileID) {
             guard let file = project.files[id] else { return }
             if editingID != id {
-                cell.configure(with: file, icons: project.icons(of: id), isWorkingFile: project.manifest.workingFile == id)
+                cell.configure(with: file, slots: project.iconSlots(of: id), isWorkingFile: project.manifest.workingFile == id)
             }
-            cell.onIconsClick = { [weak self] view in self?.showIconPicker(for: id, from: view) }
+            cell.onSlotClick = { [weak self] slot, view, rect in self?.showIconPicker(for: id, slot: slot, from: view, rect: rect) }
         }
 
-        /// Clicking a row's icons (or Working File arrow) opens the same icon list as the header.
-        func showIconPicker(for id: FileID, from view: NSView) {
+        /// Clicking one of a row's label slots opens the label list for that slot, as in the header.
+        func showIconPicker(for id: FileID, slot: Int, from view: NSView, rect: NSRect) {
             iconPopover?.close()
             let popover = NSPopover()
             popover.behavior = .transient
-            let host = NSHostingController(rootView: IconPickerList(model: model, fileID: id) { [weak self] in
+            let host = NSHostingController(rootView: IconPickerList(model: model, fileID: id, slot: slot) { [weak self] in
+                self?.iconPopover?.close()
+            } onEditIcons: { [weak self] in
                 self?.iconPopover?.close()
                 self?.model.showIconEditor()
             })
             host.sizingOptions = .preferredContentSize
             popover.contentViewController = host
-            popover.show(relativeTo: view.bounds, of: view, preferredEdge: .maxX)
+            popover.show(relativeTo: rect, of: view, preferredEdge: .maxX)
             iconPopover = popover
         }
 
@@ -199,14 +194,6 @@ struct SidebarView: NSViewRepresentable {
             configure(cell, for: id)
             cell.textField?.delegate = self
             return cell
-        }
-
-        func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
-            let rowView = SidebarRowView()
-            if let id = id(of: item) {
-                rowView.fillColors = fillColors(for: id)
-            }
-            return rowView
         }
 
 
@@ -240,6 +227,7 @@ struct SidebarView: NSViewRepresentable {
             guard let cell = outline.view(atColumn: 0, row: row, makeIfNecessary: true) as? SidebarCell,
                   let field = cell.textField else { return }
             editingID = id
+            cell.isEditingName = true
             field.isEditable = true
             outline.window?.makeFirstResponder(field)
             field.currentEditor()?.selectAll(nil)
@@ -249,6 +237,7 @@ struct SidebarView: NSViewRepresentable {
             guard let field = notification.object as? NSTextField, let id = editingID else { return }
             editingID = nil
             field.isEditable = false
+            (field.superview as? SidebarCell)?.isEditingName = false
             model.rename(id, to: field.stringValue)
             field.stringValue = project.files[id]?.title ?? field.stringValue
             outlineView?.window?.makeFirstResponder(outlineView)
@@ -305,8 +294,11 @@ struct SidebarView: NSViewRepresentable {
             menu.removeAllItems()
             menuTargets = clickedTargets()
 
-            menu.addItem(withTitle: "New Draft", action: #selector(newDraft), keyEquivalent: "").target = self
-            menu.addItem(withTitle: "New Note", action: #selector(newNote), keyEquivalent: "").target = self
+            // With the same shortcuts as the File menu, shown so they're easy to learn.
+            menu.addItem(withTitle: "New Draft", action: #selector(newDraft), keyEquivalent: "n").target = self
+            let newNoteItem = menu.addItem(withTitle: "New Note", action: #selector(newNote), keyEquivalent: "n")
+            newNoteItem.keyEquivalentModifierMask = [.command, .option]
+            newNoteItem.target = self
             guard !menuTargets.isEmpty else { return }
 
             menu.addItem(.separator())
@@ -314,12 +306,15 @@ struct SidebarView: NSViewRepresentable {
                 menu.addItem(withTitle: "Rename", action: #selector(renameClicked), keyEquivalent: "").target = self
             }
             let kinds = Set(menuTargets.compactMap { project.files[$0]?.kind })
-            if kinds.contains(.draft) {
-                menu.addItem(withTitle: "Turn into Note", action: #selector(makeNote), keyEquivalent: "").target = self
+            // ⌃⌘N goes on the one it does: Turn into Note, unless they're all notes already.
+            let shortcutTarget: FileKind = kinds == [.note] ? .draft : .note
+            func addKindItem(_ title: String, _ action: Selector, _ kind: FileKind) {
+                let item = menu.addItem(withTitle: title, action: action, keyEquivalent: kind == shortcutTarget ? "n" : "")
+                if kind == shortcutTarget { item.keyEquivalentModifierMask = [.command, .control] }
+                item.target = self
             }
-            if kinds.contains(.note) {
-                menu.addItem(withTitle: "Turn into Draft", action: #selector(makeDraft), keyEquivalent: "").target = self
-            }
+            if kinds.contains(.draft) { addKindItem("Turn into Note", #selector(makeNote), .note) }
+            if kinds.contains(.note) { addKindItem("Turn into Draft", #selector(makeDraft), .draft) }
             menu.addItem(.separator())
             addIconsMenu(to: menu)
             if menuTargets.count == 1, let target = menuTargets.first {
@@ -352,12 +347,12 @@ struct SidebarView: NSViewRepresentable {
                 item.target = self
                 item.representedObject = definition.id
                 item.image = IconSymbol.image(for: definition, pointSize: 12)
-                let having = targets.filter { $0.icons.contains(definition.id) }.count
+                let having = targets.filter { project.icons(of: $0.id).contains(definition) }.count
                 item.state = having == targets.count ? .on : having > 0 ? .mixed : .off
-                // Adding needs room on at least one file.
+                // Adding needs an empty slot on at least one file.
                 if having < targets.count {
                     item.isEnabled = targets.contains {
-                        !$0.icons.contains(definition.id) && project.icons(of: $0.id).count < Project.maxIconsPerFile
+                        !project.icons(of: $0.id).contains(definition) && project.freeIconSlot(of: $0.id) != nil
                     }
                 }
             }
@@ -436,41 +431,6 @@ final class SidebarOutlineView: NSOutlineView {
     /// ⌘⌫: move to the trash straight away.
     var onCommandDelete: (() -> Void)?
 
-    /// Extra room on the left of every row, so the fills don't run into the window edge.
-    static let leadingRoom: CGFloat = 14
-
-    override func frameOfCell(atColumn column: Int, row: Int) -> NSRect {
-        var frame = super.frameOfCell(atColumn: column, row: row)
-        frame.origin.x += Self.leadingRoom
-        frame.size.width = max(0, frame.width - Self.leadingRoom)
-        return frame
-    }
-
-    override func frameOfOutlineCell(atRow row: Int) -> NSRect {
-        var frame = super.frameOfOutlineCell(atRow: row)
-        frame.origin.x += Self.leadingRoom
-        return frame
-    }
-
-    /// Plain chevrons for folding, tinted by the row (white on a coloured row), instead of the
-    /// system's disclosure triangle, which didn't draw well on the coloured fills.
-    override func makeView(withIdentifier identifier: NSUserInterfaceItemIdentifier, owner: Any?) -> NSView? {
-        let view = super.makeView(withIdentifier: identifier, owner: owner)
-        if identifier == NSOutlineView.disclosureButtonIdentifier, let button = view as? NSButton {
-            let configuration = NSImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
-            button.setButtonType(.toggle)
-            button.isBordered = false
-            button.imagePosition = .imageOnly
-            button.imageScaling = .scaleNone
-            button.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: "Expand")?
-                .withSymbolConfiguration(configuration)
-            button.alternateImage = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: "Collapse")?
-                .withSymbolConfiguration(configuration)
-            if button.contentTintColor == nil { button.contentTintColor = .secondaryLabelColor }
-        }
-        return view
-    }
-
     override func keyDown(with event: NSEvent) {
         let deleteKeys = [Character(UnicodeScalar(NSDeleteCharacter)!), Character(UnicodeScalar(NSDeleteFunctionKey)!)]
         let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
@@ -489,18 +449,16 @@ final class SidebarCell: NSTableCellView {
 
     private let icon = ClickableImageView()
     private let label = NSTextField(labelWithString: "")
-    private let badges = IconFanView()
+    private let slots = LabelSlotsView()
     /// The Working File's fat arrow, right before the name (SPEC.md §8). No room taken otherwise.
     private let workingArrow = NSImageView()
     private var workingArrowWidth: NSLayoutConstraint!
     private var workingArrowGap: NSLayoutConstraint!
     private var isWorkingFile = false
 
-    /// Called with the clicked view when the icons or the Working File arrow are clicked.
-    var onIconsClick: ((NSView) -> Void)? {
-        didSet {
-            badges.onClick = onIconsClick.map { handler in { [unowned badges] in handler(badges) } }
-        }
+    /// Called with the slot, and the view and rect to point a popover at, when a label slot is clicked.
+    var onSlotClick: ((Int, NSView, NSRect) -> Void)? {
+        didSet { slots.onClick = onSlotClick }
     }
 
     init() {
@@ -519,13 +477,13 @@ final class SidebarCell: NSTableCellView {
         label.cell?.usesSingleLineMode = true
         label.focusRingType = .none
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        badges.translatesAutoresizingMaskIntoConstraints = false
-        badges.setContentHuggingPriority(.required, for: .horizontal)
-        badges.setContentCompressionResistancePriority(.required, for: .horizontal)
+        slots.translatesAutoresizingMaskIntoConstraints = false
+        slots.setContentHuggingPriority(.required, for: .horizontal)
+        slots.setContentCompressionResistancePriority(.required, for: .horizontal)
         addSubview(workingArrow)
         addSubview(icon)
         addSubview(label)
-        addSubview(badges)
+        addSubview(slots)
         imageView = icon
         textField = label
 
@@ -541,78 +499,113 @@ final class SidebarCell: NSTableCellView {
             icon.heightAnchor.constraint(equalToConstant: 16),
             label.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 5),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
-            badges.leadingAnchor.constraint(greaterThanOrEqualTo: label.trailingAnchor, constant: 4),
-            badges.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
-            badges.centerYAnchor.constraint(equalTo: centerYAnchor),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: slots.leadingAnchor, constant: -6),
+            slots.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
+            slots.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
+    }
+
+    /// When the sidebar is narrower than this, every row's three slots fold into the width of
+    /// one. (The sidebar can't go below 210, so this has to sit above that.)
+    static let collapseBelowWidth: CGFloat = 250
+
+    override func layout() {
+        super.layout()
+        // Decided from the whole sidebar, not this row (which narrows with nesting), so every
+        // row folds at once and the slots always line up.
+        let listWidth = enclosingScrollView?.contentView.bounds.width ?? bounds.width
+        slots.isCollapsed = listWidth < Self.collapseBelowWidth
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not used")
     }
 
+    /// The row sets this as its selection changes: `.emphasized` while it's selected in the
+    /// focused list (the accent fill). Everything on the row is white then, and only then.
     override var backgroundStyle: NSView.BackgroundStyle {
-        didSet { updateIconTint() }
+        didSet { updateTint() }
     }
 
-    /// Lets the Working File arrow and the icons take their own clicks; otherwise the outline
+    private var isOnAccent: Bool { backgroundStyle == .emphasized }
+
+    /// Lets the labels and the Working File arrow take their own clicks; otherwise the outline
     /// view keeps the click for selecting the row (an image view never got it).
     override func validateProposedFirstResponder(_ responder: NSResponder, for event: NSEvent?) -> Bool {
-        if event?.type == .leftMouseDown, responder === badges || (responder === icon && icon.onClick != nil) {
+        if event?.type == .leftMouseDown, responder === slots || (responder === icon && icon.onClick != nil) {
             return true
         }
         return super.validateProposedFirstResponder(responder, for: event)
     }
 
-    /// The row is filled with the file's icon colours, so everything on it is white.
-    private var isOnColor = false
-
-    func configure(with file: PemeriaFile, icons: [IconDefinition], isWorkingFile: Bool) {
+    func configure(with file: PemeriaFile, slots: [IconDefinition?], isWorkingFile: Bool) {
         label.stringValue = file.title
         label.isEditable = false
+        isEditingName = false
         self.isWorkingFile = isWorkingFile
         workingArrowWidth.constant = isWorkingFile ? 16 : 0
         workingArrowGap.constant = isWorkingFile ? 2 : 0
         workingArrow.isHidden = !isWorkingFile
         icon.image = file.kind == .note ? NSImage(systemSymbolName: "note.text", accessibilityDescription: "Note") : nil
-        badges.icons = icons
-        isOnColor = !icons.isEmpty
-        updateIconTint()
+        self.slots.slots = slots
+        updateTint()
     }
 
-    /// Set by the row: selected rows are filled with the accent colour.
-    var isRowSelected = false {
-        didSet { if isRowSelected != oldValue { updateIconTint() } }
+    /// While renaming, the name sits in a plain text box in the usual text colours, so it reads
+    /// in light and dark mode whatever the row behind it.
+    var isEditingName = false {
+        didSet {
+            guard isEditingName != oldValue else { return }
+            label.drawsBackground = isEditingName
+            label.backgroundColor = .textBackgroundColor
+            updateTint()
+        }
     }
 
-    private func updateIconTint() {
-        // On the accent fill or a label fill, everything is white.
-        let white = isRowSelected || isOnColor
-        badges.isOnSelection = isRowSelected
-        badges.isOnColor = white
+    private func updateTint() {
+        // White only on the accent fill of a selected row; the system's usual text colour
+        // otherwise (including a selected row in a list that isn't focused, which is gray).
+        let white = isOnAccent && !isEditingName
+        slots.isOnSelection = isOnAccent
         label.textColor = white ? .white : .labelColor
-        icon.contentTintColor = white ? .white : .secondaryLabelColor
+        icon.contentTintColor = isOnAccent ? .white : .secondaryLabelColor
         if isWorkingFile {
-            // Accent coloured on a plain row; white on the accent or a label colour.
-            let color: NSColor = white ? .white : Theme.accent
+            // Accent coloured on a plain row; white on the accent.
+            let color: NSColor = isOnAccent ? .white : Theme.accent
             workingArrow.image = NSImage(systemSymbolName: "arrowshape.right.fill", accessibilityDescription: "Working File")?
                 .withSymbolConfiguration(.init(pointSize: 12, weight: .bold).applying(.init(paletteColors: [color])))
         }
     }
 }
 
-/// Up to three file icons, overlapping and fanned like a hand of cards (SPEC.md §4).
-/// Each is its symbol in its colour; on a selected row each gets a thin white halo.
-/// With no icons it shows a faint tag, as the header does, so there's something to click.
-final class IconFanView: NSView {
-    var icons: [IconDefinition] = [] {
+/// A file's three label slots at the trailing end of its sidebar row (SPEC.md §4): a square
+/// for each, its label's colour with the symbol in white, or gray while empty. Click a slot to
+/// choose its label. When the row is narrow, the three fold into the width of one, as three
+/// stripes of plain colour.
+final class LabelSlotsView: NSView {
+    var slots: [IconDefinition?] = Array(repeating: nil, count: Project.maxIconsPerFile) {
         didSet {
-            guard icons != oldValue else { return }
-            invalidateIntrinsicContentSize()
+            guard slots != oldValue else { return }
             needsDisplay = true
-            toolTip = icons.isEmpty ? "Add Labels" : icons.map(\.name).joined(separator: ", ")
+            let names = slots.compactMap { $0?.name }
+            toolTip = names.isEmpty ? "Add Labels" : names.joined(separator: ", ")
         }
     }
+
+    var isCollapsed = false {
+        didSet {
+            guard isCollapsed != oldValue else { return }
+            invalidateIntrinsicContentSize()
+            needsDisplay = true
+        }
+    }
+
+    var isOnSelection = false {
+        didSet { if isOnSelection != oldValue { needsDisplay = true } }
+    }
+
+    /// The clicked slot, this view, and the slot's rect.
+    var onClick: ((Int, NSView, NSRect) -> Void)?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -623,62 +616,59 @@ final class IconFanView: NSView {
         fatalError("init(coder:) is not used")
     }
 
-    var isOnSelection = false {
-        didSet { if isOnSelection != oldValue { needsDisplay = true } }
-    }
-
-    /// On a row filled with the icons' colours: each icon is drawn in white, with no halo.
-    var isOnColor = false {
-        didSet { if isOnColor != oldValue { needsDisplay = true } }
-    }
-
-    var onClick: (() -> Void)?
-
-    override func mouseDown(with event: NSEvent) {
-        if let onClick { onClick() } else { super.mouseDown(with: event) }
-    }
-
-    static let size: CGFloat = 14
-    static let step: CGFloat = 10
+    static let side: CGFloat = 18
+    static let gap: CGFloat = 2
 
     override var intrinsicContentSize: NSSize {
-        guard !icons.isEmpty else { return NSSize(width: Self.size + 4, height: Self.size + 4) }
-        return NSSize(width: Self.size + CGFloat(icons.count - 1) * Self.step + 4, height: Self.size + 4)
+        let count = CGFloat(Project.maxIconsPerFile)
+        let width = isCollapsed ? Self.side : count * Self.side + (count - 1) * Self.gap
+        return NSSize(width: width, height: Self.side)
     }
 
     override var isFlipped: Bool { true }
 
+    /// Each slot's rect: squares side by side, or thin stripes of one square when collapsed.
+    private func rect(ofSlot slot: Int) -> NSRect {
+        let top = bounds.midY - Self.side / 2
+        if isCollapsed {
+            let width = Self.side / CGFloat(slots.count)
+            return NSRect(x: CGFloat(slot) * width, y: top, width: width, height: Self.side)
+        }
+        return NSRect(x: CGFloat(slot) * (Self.side + Self.gap), y: top, width: Self.side, height: Self.side)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let onClick else { return super.mouseDown(with: event) }
+        let point = convert(event.locationInWindow, from: nil)
+        let slot = slots.indices.first { rect(ofSlot: $0).insetBy(dx: -Self.gap / 2, dy: -4).contains(point) }
+            ?? (point.x < bounds.midX ? 0 : slots.count - 1)
+        onClick(slot, self, rect(ofSlot: slot))
+    }
+
+    private var emptyColor: NSColor {
+        isOnSelection ? NSColor.white.withAlphaComponent(0.28) : NSColor.labelColor.withAlphaComponent(0.1)
+    }
+
     override func draw(_ dirtyRect: NSRect) {
-        guard let context = NSGraphicsContext.current?.cgContext else { return }
-        if icons.isEmpty {
-            let color: NSColor = isOnSelection ? .white.withAlphaComponent(0.55) : .tertiaryLabelColor
-            guard let tag = NSImage(systemSymbolName: "tag", accessibilityDescription: "Add Icons")?
-                .withSymbolConfiguration(.init(pointSize: 10, weight: .regular).applying(.init(paletteColors: [color])))
-            else { return }
-            tag.draw(in: CGRect(x: bounds.midX - tag.size.width / 2, y: bounds.midY - tag.size.height / 2,
-                                width: tag.size.width, height: tag.size.height))
+        if isCollapsed {
+            NSGraphicsContext.saveGraphicsState()
+            NSBezierPath(roundedRect: NSRect(x: 0, y: bounds.midY - Self.side / 2, width: Self.side, height: Self.side),
+                         xRadius: 4, yRadius: 4).addClip()
+            for (index, definition) in slots.enumerated() {
+                (definition.flatMap { NSColor(hex: $0.color) } ?? emptyColor).setFill()
+                // A hair of overlap so no seam shows between stripes.
+                rect(ofSlot: index).insetBy(dx: -0.25, dy: 0).fill()
+            }
+            NSGraphicsContext.restoreGraphicsState()
             return
         }
-        let angles: [CGFloat] = switch icons.count {
-        case 1: [0]
-        case 2: [-7, 7]
-        default: [-10, 0, 10]
-        }
-        for (index, definition) in icons.enumerated() {
-            guard let image = IconSymbol.image(for: definition, pointSize: 11, color: isOnColor ? .white : nil) else { continue }
-            let halo = isOnSelection && !isOnColor ? IconSymbol.image(for: definition, pointSize: 11, color: .white) : nil
-            let center = CGPoint(x: 2 + Self.size / 2 + CGFloat(index) * Self.step, y: bounds.midY)
-            context.saveGState()
-            context.translateBy(x: center.x, y: center.y)
-            context.rotate(by: angles[index] * .pi / 180)
-            let rect = CGRect(x: -image.size.width / 2, y: -image.size.height / 2, width: image.size.width, height: image.size.height)
-            if let halo {
-                for (dx, dy) in [(-1.0, 0.0), (1, 0), (0, -1), (0, 1), (-0.7, -0.7), (0.7, 0.7), (-0.7, 0.7), (0.7, -0.7)] {
-                    halo.draw(in: rect.offsetBy(dx: dx, dy: dy))
-                }
-            }
-            image.draw(in: rect)
-            context.restoreGState()
+        for (index, definition) in slots.enumerated() {
+            let square = rect(ofSlot: index)
+            (definition.flatMap { NSColor(hex: $0.color) } ?? emptyColor).setFill()
+            NSBezierPath(roundedRect: square, xRadius: 4, yRadius: 4).fill()
+            guard let definition, let image = IconSymbol.image(for: definition, pointSize: 10, color: .white) else { continue }
+            image.draw(in: CGRect(x: square.midX - image.size.width / 2, y: square.midY - image.size.height / 2,
+                                  width: image.size.width, height: image.size.height))
         }
     }
 }
@@ -698,129 +688,6 @@ enum IconSymbol {
         let color = color ?? NSColor(hex: definition.color) ?? .secondaryLabelColor
         return NSImage(systemSymbolName: definition.symbol, accessibilityDescription: definition.name)?
             .withSymbolConfiguration(.init(pointSize: pointSize, weight: .semibold).applying(.init(paletteColors: [color])))
-    }
-}
-
-/// A file with icons has its row filled with their colours, side by side in equal vertical bands
-/// (SPEC.md §4). A selected row is filled with the accent colour instead, like any Mac list, and
-/// keeps its label colours as a stripe down its left edge. Selected rows next to each other join.
-final class SidebarRowView: NSTableRowView {
-    var fillColors: [NSColor] = [] {
-        didSet {
-            guard fillColors != oldValue else { return }
-            updateDisclosureTint()
-            needsDisplay = true
-        }
-    }
-
-    override var isSelected: Bool {
-        didSet {
-            guard isSelected != oldValue else { return }
-            updateDisclosureTint()
-            updateCellSelection()
-            needsDisplay = true
-        }
-    }
-
-    private func updateCellSelection() {
-        for column in 0..<numberOfColumns {
-            (view(atColumn: column) as? SidebarCell)?.isRowSelected = isSelected
-        }
-    }
-
-    override var isPreviousRowSelected: Bool {
-        didSet { if isPreviousRowSelected != oldValue { needsDisplay = true } }
-    }
-
-    override var isNextRowSelected: Bool {
-        didSet { if isNextRowSelected != oldValue { needsDisplay = true } }
-    }
-
-
-    override func didAddSubview(_ subview: NSView) {
-        super.didAddSubview(subview)
-        updateDisclosureTint()
-        updateCellSelection()
-        needsDisplay = true
-    }
-
-    override func layout() {
-        super.layout()
-        needsDisplay = true
-    }
-
-    private var disclosureButton: NSButton? {
-        subviews.first { $0.identifier == NSOutlineView.disclosureButtonIdentifier && !$0.isHidden } as? NSButton
-    }
-
-    /// The fold chevron matches the text: white on a coloured or selected row.
-    private func updateDisclosureTint() {
-        disclosureButton?.contentTintColor = fillColors.isEmpty && !isSelected ? .secondaryLabelColor : .white
-    }
-
-    /// Width of the fold chevron's slot before each row's content. Rows without children keep
-    /// the slot too, so every row at one level starts its fill in the same place.
-    private static let chevronSlot: CGFloat = 13
-
-    /// The fill sits around the row's content (and its fold chevron's slot), so it steps in with
-    /// each level of nesting.
-    private var pillRect: NSRect {
-        let cell = view(atColumn: 0) as? NSView
-        let start = (cell?.frame.minX ?? bounds.minX + 39) - Self.chevronSlot - 6
-        let end = min(bounds.maxX - 8, (cell?.frame.maxX ?? bounds.maxX) + 2)
-        return NSRect(x: start, y: bounds.minY + 1, width: max(0, end - start), height: bounds.height - 2)
-    }
-
-    /// Width of the label stripe down a selected row's left edge.
-    private static let stripeWidth: CGFloat = 6
-
-    override func drawBackground(in dirtyRect: NSRect) {
-        super.drawBackground(in: dirtyRect)
-        updateDisclosureTint()
-        let rect = pillRect
-        if isSelected {
-            drawSelectedFill(in: rect)
-        } else if !fillColors.isEmpty {
-            NSGraphicsContext.saveGraphicsState()
-            NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).addClip()
-            let width = rect.width / CGFloat(fillColors.count)
-            for (index, color) in fillColors.enumerated() {
-                color.setFill()
-                // A hair of overlap so no seam shows between bands.
-                NSRect(x: rect.minX + CGFloat(index) * width, y: rect.minY, width: width + 0.5, height: rect.height).fill()
-            }
-            NSGraphicsContext.restoreGraphicsState()
-        }
-    }
-
-    /// Drawn here rather than in `drawSelection`, which a highlight style of `.none` never calls.
-    /// The accent fill runs on into a selected neighbour, so a run of selected rows is one block;
-    /// the label colours sit in a stripe down the left edge, stacked top to bottom.
-    private func drawSelectedFill(in pill: NSRect) {
-        // Run on past the row's edge towards a selected neighbour; the row clips it square there,
-        // so it meets the neighbour's fill seamlessly.
-        let overhang: CGFloat = 8
-        var rect = pill
-        if isPreviousRowSelected {
-            rect.size.height += rect.minY - bounds.minY + overhang
-            rect.origin.y = bounds.minY - overhang
-        }
-        if isNextRowSelected { rect.size.height = bounds.maxY + overhang - rect.minY }
-        NSGraphicsContext.saveGraphicsState()
-        NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).addClip()
-        Theme.accent.setFill()
-        rect.fill()
-        if !fillColors.isEmpty {
-            // The stripe is this row's own, so it keeps to the row.
-            let top = max(rect.minY, bounds.minY)
-            let bottom = min(rect.maxY, bounds.maxY)
-            let height = (bottom - top) / CGFloat(fillColors.count)
-            for (index, color) in fillColors.enumerated() {
-                color.setFill()
-                NSRect(x: rect.minX, y: top + CGFloat(index) * height, width: Self.stripeWidth, height: height + 0.5).fill()
-            }
-        }
-        NSGraphicsContext.restoreGraphicsState()
     }
 }
 

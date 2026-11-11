@@ -21,7 +21,7 @@ public struct IconDefinition: Hashable, Sendable, Codable, Identifiable {
         IconDefinition(id: "turning-point", name: "Turning Point", symbol: "tornado", color: "#8E4EC6"),
         IconDefinition(id: "crisis", name: "Crisis", symbol: "signpost.right.and.left.fill", color: "#0090FF"),
         IconDefinition(id: "climax", name: "Climax", symbol: "flame.fill", color: "#E5484D"),
-        IconDefinition(id: "resolution", name: "Resolution", symbol: "sunrise.fill", color: "#D6409F"),
+        IconDefinition(id: "resolution", name: "Resolution", symbol: "sunrise.fill", color: "#30A46C"),
     ]
 }
 

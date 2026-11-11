@@ -50,29 +50,6 @@ struct IconGlyph: View {
     }
 }
 
-/// A file's icons, overlapping a little and fanned like cards.
-struct IconFan: View {
-    let icons: [IconDefinition]
-    var size: CGFloat = 13
-
-    var body: some View {
-        HStack(spacing: -size * 0.3) {
-            ForEach(Array(icons.enumerated()), id: \.offset) { index, icon in
-                IconGlyph(icon: icon, size: size)
-                    .rotationEffect(.degrees(Self.angle(index, of: icons.count)))
-            }
-        }
-    }
-
-    static func angle(_ index: Int, of count: Int) -> Double {
-        switch count {
-        case 1: 0
-        case 2: [-7, 7][index]
-        default: [-10, 0, 10][min(index, 2)]
-        }
-    }
-}
-
 // MARK: - Sidebar pane
 
 /// The Labels pane at the bottom of the sidebar (SPEC.md §4), laid out like the Comments and
@@ -80,76 +57,54 @@ struct IconFan: View {
 /// change its look. In the code, labels are "icons".
 struct IconsPane: View {
     let model: ProjectModel
-    @AppStorage("iconsPaneOpen") private var isOpen = false
     @State private var editing: String?
 
     var body: some View {
         VStack(spacing: 0) {
             Divider()
             SectionHeader(title: "Labels") {
-                if isOpen {
-                    Button {
-                        editing = model.addIcon().id
-                    } label: {
-                        HeaderWordButton(title: "New Label")
-                    }
-                    .buttonStyle(.plain)
-                    .help("New Label")
-                }
                 Button {
-                    withAnimation(.easeInOut(duration: 0.15)) { isOpen.toggle() }
+                    editing = model.addIcon().id
                 } label: {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Theme.buttonGray)
-                        .rotationEffect(.degrees(isOpen ? 90 : 0))
-                        .frame(width: 14)
-                        .contentShape(Rectangle())
+                    HeaderWordButton(title: "New Label")
                 }
                 .buttonStyle(.plain)
-                .help(isOpen ? "Hide Labels" : "Show Labels")
+                .help("New Label")
             }
-
-            if isOpen {
-                Divider()
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(model.project.manifest.icons) { icon in
-                            LabelRow(icon: icon, files: model.usage(of: icon.id), isEditing: editing == icon.id) {
-                                editing = icon.id
-                            }
-                            .popover(isPresented: Binding(
-                                get: { editing == icon.id },
-                                set: { if !$0, editing == icon.id { editing = nil } }
-                            ), arrowEdge: .trailing) {
-                                IconDetailEditor(model: model, iconID: icon.id) { editing = nil }
-                            }
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(model.project.manifest.icons) { icon in
+                        LabelRow(icon: icon, files: model.usage(of: icon.id), isEditing: editing == icon.id) {
+                            editing = icon.id
                         }
-                        if model.project.manifest.icons.isEmpty {
-                            Text("No labels yet. Click New Label to make one.")
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                                .padding(12)
+                        .popover(isPresented: Binding(
+                            get: { editing == icon.id },
+                            set: { if !$0, editing == icon.id { editing = nil } }
+                        ), arrowEdge: .trailing) {
+                            IconDetailEditor(model: model, iconID: icon.id) { editing = nil }
                         }
                     }
-                    .padding(.vertical, 4)
+                    if model.project.manifest.icons.isEmpty {
+                        Text("No labels yet. Click New Label to make one.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .padding(12)
+                    }
                 }
-                .frame(maxHeight: 220)
-                .fixedSize(horizontal: false, vertical: true)
-                .transition(.opacity)
-                if !model.missingDefaultIcons.isEmpty {
-                    Button("Add Story Beats") { model.addDefaultIcons() }
-                        .buttonStyle(.link)
-                        .font(.caption)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 12)
-                        .padding(.bottom, 8)
-                        .help(model.missingDefaultIcons.map(\.name).joined(separator: ", "))
-                }
+                .padding(.vertical, 4)
             }
-        }
-        .onChange(of: model.iconEditorRequest) {
-            withAnimation(.easeInOut(duration: 0.15)) { isOpen = true }
+            .frame(maxHeight: 220)
+            .fixedSize(horizontal: false, vertical: true)
+            if !model.missingDefaultIcons.isEmpty {
+                Button("Add Story Beats") { model.addDefaultIcons() }
+                    .buttonStyle(.link)
+                    .font(.caption)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
+                    .help(model.missingDefaultIcons.map(\.name).joined(separator: ", "))
+            }
         }
     }
 }
@@ -336,99 +291,156 @@ struct IconDetailEditor: View {
 // MARK: - Header picker
 
 /// A single file's name in the header, laid out like its sidebar row: the Working File arrow
-/// before it, its icons after (SPEC.md §12). Clicking either opens the icon list, which ends
-/// with "Edit Labels…". A faint tag stands in when there are no icons, so there's something to click.
+/// before it, its three label slots after (SPEC.md §12). Click a slot to choose its label.
 struct HeaderTitleWithIcons<Title: View>: View {
     let model: ProjectModel
     let fileID: FileID
     @ViewBuilder let title: Title
-    @State private var showing = false
 
     var body: some View {
-        let icons = model.project.icons(of: fileID)
         let isWorking = model.project.manifest.workingFile == fileID
         HStack(spacing: 6) {
             if isWorking {
-                Button {
-                    showing.toggle()
-                } label: {
-                    Image(systemName: "arrowshape.right.fill")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Theme.accentColor)
-                        .frame(height: 22)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help("Working File")
+                Image(systemName: "arrowshape.right.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.accentColor)
+                    .frame(height: 22)
+                    .help("Working File (⌘J jumps here)")
             }
             title
-            Button {
-                showing.toggle()
-            } label: {
-                Group {
-                    if icons.isEmpty {
-                        Image(systemName: "tag")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.tertiary)
-                    } else {
-                        IconFan(icons: icons, size: 13)
-                    }
+            LabelSlots(model: model, fileID: fileID)
+        }
+    }
+}
+
+/// A file's three label slots as plain squares, like the sidebar's (for the Working File row).
+/// Collapsed, they fold into one square of three stripes, as the sidebar's rows do.
+struct SlotSquares: View {
+    let slots: [IconDefinition?]
+    var isCollapsed = false
+
+    var body: some View {
+        if isCollapsed {
+            HStack(spacing: 0) {
+                ForEach(slots.indices, id: \.self) { slot in
+                    Rectangle().fill(slots[slot]?.swiftUIColor ?? Color.primary.opacity(0.1))
                 }
-                .padding(.horizontal, 2)
-                .frame(height: 22)
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .help(icons.isEmpty ? "Add Labels" : icons.map(\.name).joined(separator: ", "))
-            .popover(isPresented: $showing, arrowEdge: .bottom) {
-                IconPickerList(model: model, fileID: fileID) {
-                    showing = false
-                    model.showIconEditor()
-                }
+            .frame(width: 18, height: 18)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+        } else {
+            squares
+        }
+    }
+
+    private var squares: some View {
+        HStack(spacing: 2) {
+            ForEach(slots.indices, id: \.self) { slot in
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(slots[slot]?.swiftUIColor ?? Color.primary.opacity(0.1))
+                    .frame(width: 18, height: 18)
+                    .overlay {
+                        if let icon = slots[slot] {
+                            Image(systemName: icon.symbol)
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(.white)
+                        }
+                    }
             }
         }
     }
 }
 
-/// Every label with a checkmark, Set/Clear Working File, then "Edit Labels…".
+/// The header's three label slots, drawn like the sidebar's: a square each, gray while empty.
+private struct LabelSlots: View {
+    let model: ProjectModel
+    let fileID: FileID
+    @State private var openSlot: Int?
+
+    var body: some View {
+        let slots = model.project.iconSlots(of: fileID)
+        HStack(spacing: 2) {
+            ForEach(slots.indices, id: \.self) { slot in
+                Button {
+                    openSlot = slot
+                } label: {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(slots[slot]?.swiftUIColor ?? Color.primary.opacity(0.1))
+                        .frame(width: 18, height: 18)
+                        .overlay {
+                            if let icon = slots[slot] {
+                                Image(systemName: icon.symbol)
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(.white)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(slots[slot].map { "\($0.name). Click to change." } ?? "Empty label slot. Click to choose a label.")
+                .popover(isPresented: Binding(
+                    get: { openSlot == slot },
+                    set: { if !$0, openSlot == slot { openSlot = nil } }
+                ), arrowEdge: .bottom) {
+                    IconPickerList(model: model, fileID: fileID, slot: slot) {
+                        openSlot = nil
+                    } onEditIcons: {
+                        openSlot = nil
+                        model.showIconEditor()
+                    }
+                }
+            }
+        }
+        .frame(height: 22)
+    }
+}
+
+/// The labels to choose from for one slot of a file: every label (a checkmark on this slot's),
+/// None to empty the slot, then "Edit Labels…". A label already in another slot moves here.
 struct IconPickerList: View {
     let model: ProjectModel
     let fileID: FileID
+    let slot: Int
+    let onDone: () -> Void
     let onEditIcons: () -> Void
 
     var body: some View {
-        let file = model.project.files[fileID]
-        let current = file?.icons ?? []
-        let full = model.project.icons(of: fileID).count >= Project.maxIconsPerFile
-        let isWorking = model.project.manifest.workingFile == fileID
+        let slots = model.project.iconSlots(of: fileID)
+        let current = slot < slots.count ? slots[slot] : nil
         VStack(alignment: .leading, spacing: 0) {
+            Text("Slot \(slot + 1)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
             ForEach(model.project.manifest.icons) { icon in
-                let has = current.contains(icon.id)
-                PickerRow(disabled: !has && full) {
-                    model.toggleIcon(icon.id, on: [fileID])
+                PickerRow {
+                    model.setIcon(icon.id, slot: slot, of: fileID)
+                    onDone()
                 } label: {
                     IconGlyph(icon: icon, size: 13).frame(width: 20)
                     Text(icon.name)
                     Spacer()
-                    if has { Image(systemName: "checkmark").font(.system(size: 11, weight: .semibold)) }
+                    if current?.id == icon.id {
+                        Image(systemName: "checkmark").font(.system(size: 11, weight: .semibold))
+                    } else if let other = slots.firstIndex(where: { $0?.id == icon.id }) {
+                        Text("Slot \(other + 1)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
-            if full {
-                Text("Up to \(Project.maxIconsPerFile) labels per file")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-            }
-            Divider().padding(.vertical, 4)
-            PickerRow {
-                model.setWorkingFile(isWorking ? nil : fileID)
+            PickerRow(disabled: current == nil) {
+                model.setIcon(nil, slot: slot, of: fileID)
+                onDone()
             } label: {
-                Image(systemName: "arrowshape.right.fill")
-                    .foregroundStyle(Theme.accentColor)
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(Color.primary.opacity(0.1))
+                    .frame(width: 13, height: 13)
                     .frame(width: 20)
-                Text(isWorking ? "Clear Working File" : "Set as Working File")
+                Text("None")
                 Spacer()
+                if current == nil { Image(systemName: "checkmark").font(.system(size: 11, weight: .semibold)) }
             }
             Divider().padding(.vertical, 4)
             PickerRow(action: onEditIcons) {

@@ -21,8 +21,8 @@ final class MarkerFragment: NSTextLayoutFragment {
         fatalError("init(coder:) is not used")
     }
 
-    /// The divider's pin button at the right end: "Pin Outline", then its shortcut.
-    private static let pinLabel = NSAttributedString(string: "Pin Outline", attributes: [
+    /// The divider's pin button at the right end: "Pin Open", then its shortcut.
+    private static let pinLabel = NSAttributedString(string: "Pin Open", attributes: [
         .font: NSFont.systemFont(ofSize: 11),
         .foregroundColor: NSColor.secondaryLabelColor,
     ])
@@ -98,6 +98,16 @@ final class MarkerFragment: NSTextLayoutFragment {
     }
 
     override func draw(at point: CGPoint, in context: CGContext) {
+        // TextKit can draw this outside the text view's own drawing, where the system colours
+        // below would resolve against some other appearance: a dark one turned these gray file
+        // names white on a light page. So draw in the text view's appearance, always.
+        let appearance = textLayoutManager?.textContainer?.textView?.effectiveAppearance ?? NSApp.effectiveAppearance
+        appearance.performAsCurrentDrawingAppearance {
+            drawMarker(at: point, in: context)
+        }
+    }
+
+    private func drawMarker(at point: CGPoint, in context: CGContext) {
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
         defer { NSGraphicsContext.restoreGraphicsState() }
@@ -135,10 +145,10 @@ final class MarkerFragment: NSTextLayoutFragment {
             }
 
         case .outlineDivider:
-            let label = NSAttributedString(string: "OUTLINE", attributes: [
-                .font: NSFont.systemFont(ofSize: 10, weight: .semibold),
-                .foregroundColor: NSColor.tertiaryLabelColor,
-                .kern: 1.2,
+            // Headed like every section heading in the app (Documents, Comments, Labels…).
+            let label = NSAttributedString(string: "Outline", attributes: [
+                .font: NSFont.preferredFont(forTextStyle: .headline),
+                .foregroundColor: NSColor.labelColor,
             ])
             let size = label.size()
             let midY = point.y + height / 2

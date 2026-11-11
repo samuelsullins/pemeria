@@ -50,21 +50,28 @@ struct EditorPane: View {
                     Divider()
                     let hasDrafts = files.contains { $0.kind == .draft }
                     let reading = model.isReading(pane: pane)
-                    let outlineView = model.isOutlineView(pane: pane)
-                    if outlineView, !hasDrafts {
-                        Text("Notes don’t have outlines.")
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else {
-                        // One editor whatever the mode, so pinning the outline (or any other switch)
-                        // keeps the same text view and your place in it, rather than starting over.
-                        // Notes have no outline, so there's no pane to pin for them.
-                        let pinned = model.isOutlinePinned(pane: pane)
-                        let mode: EditorMode = reading ? .reading : outlineView ? .outlineView : pinned ? .bodies : .full
-                        VerticalSplit(showsBottom: !reading && !outlineView && pinned && hasDrafts,
+                    // Notes have no outline, so a pane of only notes always shows their text.
+                    let outlineView = model.isOutlineView(pane: pane) && hasDrafts
+                    // One editor whatever the mode, so pinning the outline (or any other switch)
+                    // keeps the same text view and your place in it, rather than starting over.
+                    // Notes have no outline, so there's no pane to pin for them.
+                    let pinned = model.isOutlinePinned(pane: pane)
+                    let mode: EditorMode = reading ? .reading : outlineView ? .outlineView : pinned ? .bodies : .full
+                    let showsOutlinePane = !reading && !outlineView && pinned && hasDrafts
+                    // The pinned outline sits beside the text, or below it while split, where
+                    // each pane is already narrow (SPEC.md §9).
+                    if model.isSplit {
+                        VerticalSplit(showsBottom: showsOutlinePane,
                                       heightKey: "outlinePaneHeight", defaultHeight: 220, minTop: 160, minBottom: 90) {
                             EditorView(model: model, mode: mode, pane: pane)
                         } bottom: {
+                            PinnedOutlinePane(model: model, pane: pane)
+                        }
+                    } else {
+                        SideSplit(showsSide: showsOutlinePane,
+                                  widthKey: "outlinePaneWidth", defaultWidth: 320, minLeading: 320, minSide: 200) {
+                            EditorView(model: model, mode: mode, pane: pane)
+                        } side: {
                             PinnedOutlinePane(model: model, pane: pane)
                         }
                     }
@@ -81,8 +88,8 @@ struct EditorPane: View {
     }
 }
 
-/// The file name above the editor: Read mode and one-click copy on the left; Draft | Outline and
-/// split view on the right.
+/// The file name above the editor: Read | Draft | Outline, one-click copy and indents on the
+/// left; split view on the right.
 /// With one file selected the name is editable in place, and its icons sit beside it (SPEC.md §12).
 private struct EditorHeader: View {
     let model: ProjectModel
@@ -104,24 +111,17 @@ private struct EditorHeader: View {
     private func row(compact: Bool, hints: Bool) -> some View {
         HeaderLayout {
             HStack(spacing: compact ? 10 : 14) {
-                ReadModeButton(model: model, pane: pane, compact: compact, hint: hints)
+                HStack(spacing: 4) {
+                    ViewModePicker(model: model, pane: pane, compact: compact)
+                    if hints { ShortcutHint(keys: "⌘R") }
+                }
                 CopyMenu(model: model, files: files, compact: compact)
                 IndentButton(model: model, files: files, compact: compact)
             }
             .fixedSize()
             title
-            HStack(spacing: compact ? 10 : 14) {
-                // Too crushed for words, too crushed for the switch: ⇧⌘O and the View menu
-                // still switch views.
-                if !compact {
-                    HStack(spacing: 4) {
-                        DraftOutlineToggle(model: model, pane: pane)
-                        if hints { ShortcutHint(keys: "⇧⌘O") }
-                    }
-                }
-                SplitButton(model: model, pane: pane, compact: compact, hint: hints)
-            }
-            .fixedSize()
+            SplitButton(model: model, pane: pane, compact: compact, hint: hints)
+                .fixedSize()
         }
     }
 
@@ -188,32 +188,6 @@ struct ShortcutHint: View {
     }
 }
 
-/// Read mode on or off for this pane (SPEC.md §12).
-private struct ReadModeButton: View {
-    let model: ProjectModel
-    let pane: Int
-    let compact: Bool
-    var hint = false
-
-    var body: some View {
-        let reading = model.isReading(pane: pane)
-        Button {
-            model.toggleReadMode(pane: pane)
-        } label: {
-            if compact {
-                // On: full strength rather than the accent, so the header stays quiet.
-                Image(systemName: "eye.fill")
-                    .foregroundStyle(reading ? Color.primary : Color.secondary)
-                    .frame(width: 18)
-            } else {
-                HeaderWordButton(title: "Read Mode", shortcut: hint ? "⇧⌘R" : nil, isOn: reading)
-            }
-        }
-        .buttonStyle(.plain)
-        .help(reading ? "Exit Read Mode (⇧⌘R)" : "Read Mode (⇧⌘R): hide comments, outlines and bookmarks")
-    }
-}
-
 /// Copy ▾: the shown files' manuscript, their outlines, or both (SPEC.md §12).
 private struct CopyMenu: View {
     let model: ProjectModel
@@ -256,7 +230,7 @@ private struct CopyMenu: View {
 }
 
 /// Click and type to rename. Return or clicking away saves; Esc puts the old name back.
-private struct RenameField: View {
+struct RenameField: View {
     let name: String
     var alignment: TextAlignment = .center
     let onRename: (String) -> Void
@@ -333,21 +307,47 @@ private struct IndentButton: View {
     }
 }
 
-/// Draft | Outline, at the right of the header: the highlighted one is what the pane shows.
-private struct DraftOutlineToggle: View {
+/// Read | Draft | Outline, at the far left of the header: the highlighted one is what the pane
+/// shows (SPEC.md §12). ⌘R steps through them. With only notes showing there's no Outline.
+/// In a narrow pane it's one icon that steps through them too.
+private struct ViewModePicker: View {
     let model: ProjectModel
     let pane: Int
+    let compact: Bool
 
     var body: some View {
-        let outline = model.isOutlineView(pane: pane)
-        HStack(spacing: 0) {
-            segment("Draft", selected: !outline) { model.setOutlineView(false, pane: pane) }
-            segment("Outline", selected: outline) { model.setOutlineView(true, pane: pane) }
+        let current = model.viewMode(pane: pane)
+        Group {
+            if compact {
+                Button {
+                    model.cycleViewMode(pane: pane)
+                } label: {
+                    Image(systemName: Self.symbol(current))
+                        .foregroundStyle(Color.secondary)
+                        .frame(width: 18)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            } else {
+                HStack(spacing: 0) {
+                    ForEach(model.viewModes(pane: pane), id: \.self) { mode in
+                        segment(mode.title, selected: mode == current) { model.setViewMode(mode, pane: pane) }
+                    }
+                }
+                .padding(2)
+                .background(Capsule().fill(Color.primary.opacity(0.07)))
+                .fixedSize()
+            }
         }
-        .padding(2)
-        .background(Capsule().fill(Color.primary.opacity(0.07)))
-        .fixedSize()
-        .help("Draft or Outline view (⇧⌘O)")
+        .help("\(current.title) (⌘R for the next)")
+    }
+
+    private static func symbol(_ mode: ProjectModel.ViewMode) -> String {
+        switch mode {
+        case .read: "eye.fill"
+        case .draft: "doc.text"
+        case .outline: "list.bullet"
+        }
     }
 
     private func segment(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
@@ -671,6 +671,61 @@ struct VerticalSplit<Top: View, Bottom: View>: View {
                     }
                     .frame(width: geometry.size.width, height: SplitHandle.thickness)
                     .offset(y: geometry.size.height - height - 0.5 - SplitHandle.thickness / 2)
+                }
+            }
+        }
+    }
+}
+
+/// One view beside another, the trailing one's width remembered under `widthKey`: the editor
+/// and the pinned outline pane. Like `VerticalSplit`, turned on its side.
+struct SideSplit<Leading: View, Side: View>: View {
+    /// False: just the leading view, full width. It stays the same view either way.
+    let showsSide: Bool
+    let leading: Leading
+    let side: Side
+    @AppStorage private var sideWidth: Double
+    @State private var dragStartWidth: Double?
+
+    private let minLeading: Double
+    private let minSide: Double
+
+    init(showsSide: Bool = true, widthKey: String, defaultWidth: Double, minLeading: Double, minSide: Double,
+         @ViewBuilder leading: () -> Leading, @ViewBuilder side: () -> Side) {
+        self.showsSide = showsSide
+        self.leading = leading()
+        self.side = side()
+        _sideWidth = AppStorage(wrappedValue: defaultWidth, widthKey)
+        self.minLeading = minLeading
+        self.minSide = minSide
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            let maxSide = max(minSide, geometry.size.width - minLeading)
+            let width = min(max(sideWidth, minSide), maxSide)
+            HStack(spacing: 0) {
+                leading
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if showsSide {
+                    Divider()
+                    side
+                        .frame(maxHeight: .infinity)
+                        .frame(width: width)
+                }
+            }
+            .overlay(alignment: .topLeading) {
+                if showsSide {
+                    SplitHandle(axis: .horizontal) {
+                        dragStartWidth = width
+                    } onDrag: { distance in
+                        let start = dragStartWidth ?? width
+                        sideWidth = min(max(start - distance, minSide), maxSide)
+                    } onEnd: {
+                        dragStartWidth = nil
+                    }
+                    .frame(width: SplitHandle.thickness, height: geometry.size.height)
+                    .offset(x: geometry.size.width - width - 0.5 - SplitHandle.thickness / 2)
                 }
             }
         }

@@ -182,7 +182,8 @@ public struct PemeriaFile: Hashable, Sendable, Identifiable {
     public var parent: FileID?
     public var order: String
     public var kind: FileKind
-    /// Icon ids from the project's icon definitions.
+    /// The file's label slots, in order: icon ids from the project's icon definitions, with ""
+    /// for an empty slot (stored as `-`). Only the first `Project.maxIconsPerFile` are shown.
     public var icons: [String]
     /// First-line indents for this file's text, chosen with the header's indent button.
     /// nil follows the kind: drafts are indented, notes aren't.
@@ -228,7 +229,9 @@ public struct PemeriaFile: Hashable, Sendable, Identifiable {
         copy.order = order.singleLine
         copy.icons = icons
             .map { $0.singleLine.replacingOccurrences(of: ",", with: "").trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
+            .map { $0 == FileCodec.emptySlot ? "" : $0 }
+        // Empty slots only matter before a filled one.
+        while copy.icons.last == "" { copy.icons.removeLast() }
         copy.body = Block.canonical(body)
         copy.outline = outline.map(Block.canonical)
         copy.extraFields = extraFields.compactMap { field in
