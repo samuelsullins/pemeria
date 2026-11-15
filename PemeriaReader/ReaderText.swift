@@ -2,15 +2,13 @@ import PemeriaCore
 import UIKit
 
 /// Lays out files for reading, in the Mac editor's default typography (SPEC.md §5): New York,
-/// a line height of 1.45, and book-style first-line indents for draft prose. Unlike the Mac's
-/// default, text isn't justified.
+/// a line height of 1.45, justified text, and book-style first-line indents for draft prose.
 ///
 /// Normally shows what the Mac editor shows: comments (dimmed), bookmarks, and each draft's
 /// outline after a divider. Read mode shows only the prose, like the Mac's Read mode.
 enum ReaderText {
     struct Input: Equatable {
         var files: [PemeriaFile]
-        var icons: [IconDefinition]
         var readMode: Bool
         var fontSize: CGFloat
     }
@@ -21,21 +19,17 @@ enum ReaderText {
 
     static func build(_ input: Input) -> NSAttributedString {
         let fonts = Fonts(size: input.fontSize)
-        let definitions = Dictionary(input.icons.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var pieces: [NSAttributedString] = []
 
         for (index, file) in input.files.enumerated() {
-            if input.files.count > 1 {
-                let icons = file.icons.compactMap { definitions[$0] }.prefix(Project.maxIconsPerFile)
-                pieces.append(header(file.title, icons: Array(icons), first: index == 0, fonts: fonts))
-            }
+            // Every file's text starts with its name, as in the Mac editor (Read mode too).
+            pieces.append(titleLine(file.title, first: index == 0, fonts: fonts))
             if input.readMode {
                 let readable = Comments.strippedParagraphs(of: file.body).compactMap { $0.map(Block.paragraph) }
                 pieces.append(prose(readable, indented: file.indents, outline: false, fonts: fonts))
             } else {
                 pieces.append(prose(file.body, indented: file.indents, outline: false, fonts: fonts))
-                if file.kind == .draft, let outline = file.outline,
-                   outline.contains(where: { if case .paragraph(let p) = $0 { !p.text.isEmpty } else { true } }) {
+                if file.kind == .draft, let outline = file.outline, hasText(outline) {
                     pieces.append(divider(fonts: fonts))
                     pieces.append(prose(outline, indented: false, outline: true, fonts: fonts))
                 }
@@ -102,36 +96,34 @@ enum ReaderText {
         return text
     }
 
-    private static func header(_ title: String, icons: [IconDefinition], first: Bool, fonts: Fonts) -> NSAttributedString {
+    /// Whether an outline has any words (old-style bookmark lines don't count; they're never shown).
+    private static func hasText(_ blocks: [Block]) -> Bool {
+        blocks.contains { block in
+            if case .paragraph(let paragraph) = block { !paragraph.text.allSatisfy(\.isWhitespace) } else { false }
+        }
+    }
+
+    /// A file's name in large bold type in the text's own typeface, like the Mac's title line.
+    private static func titleLine(_ title: String, first: Bool, fonts: Fonts) -> NSAttributedString {
         let style = NSMutableParagraphStyle()
-        style.paragraphSpacingBefore = first ? 0 : fonts.size * 2.5
-        style.paragraphSpacing = fonts.size * 0.75
-        let result = NSMutableAttributedString(string: title, attributes: [
+        style.lineHeightMultiple = 1.1
+        style.paragraphSpacingBefore = first ? 0 : fonts.size * 3
+        style.paragraphSpacing = fonts.size * 0.9
+        return NSAttributedString(string: title, attributes: [
             .font: fonts.title,
             .foregroundColor: UIColor.label,
             .paragraphStyle: style,
         ])
-        for icon in icons {
-            let configuration = UIImage.SymbolConfiguration(pointSize: fonts.size * 0.75, weight: .semibold)
-            guard let image = UIImage(systemName: icon.symbol, withConfiguration: configuration)?
-                .withTintColor(icon.uiColor, renderingMode: .alwaysOriginal) else { continue }
-            result.append(NSAttributedString(string: " ", attributes: [.font: fonts.title, .paragraphStyle: style]))
-            let glyph = NSMutableAttributedString(attachment: NSTextAttachment(image: image))
-            glyph.addAttributes([.font: fonts.title, .paragraphStyle: style], range: NSRange(location: 0, length: glyph.length))
-            result.append(glyph)
-        }
-        return result
     }
 
+    /// Headed "Outline", like the Mac's outline divider and every section heading there.
     private static func divider(fonts: Fonts) -> NSAttributedString {
         let style = NSMutableParagraphStyle()
-        style.alignment = .center
         style.paragraphSpacingBefore = fonts.size * 1.5
-        style.paragraphSpacing = fonts.size * 0.75
-        return NSAttributedString(string: "OUTLINE", attributes: [
-            .font: UIFont.systemFont(ofSize: fonts.size * 0.65, weight: .semibold),
-            .kern: fonts.size * 0.1,
-            .foregroundColor: UIColor.tertiaryLabel,
+        style.paragraphSpacing = fonts.size * 0.5
+        return NSAttributedString(string: "Outline", attributes: [
+            .font: UIFont.systemFont(ofSize: fonts.size * 0.85, weight: .semibold),
+            .foregroundColor: UIColor.label,
             .paragraphStyle: style,
         ])
     }
@@ -142,8 +134,10 @@ enum ReaderText {
         style.firstLineHeadIndent = indented ? indent * fonts.size : 0
         // Without indents, a little space is what tells paragraphs apart.
         style.paragraphSpacing = indented ? 0 : fonts.size * 0.5
-        // Ragged right: a phone's narrow column justifies into wide gaps between words.
-        style.alignment = .natural
+        // Justified like the Mac's default. Hyphenation keeps a phone's narrow column from
+        // opening wide gaps between words; it's display only and never touches the text.
+        style.alignment = .justified
+        style.hyphenationFactor = 0.7
         return style
     }
 
@@ -158,7 +152,7 @@ enum ReaderText {
         init(size: CGFloat) {
             self.size = size
             regular = Self.serif(size: size)
-            title = Self.serif(size: size * 1.2, traits: .traitBold)
+            title = Self.serif(size: size * 1.5, traits: .traitBold)
             styled = [
                 InlineStyle.italic.rawValue: Self.serif(size: size, traits: .traitItalic),
                 InlineStyle.bold.rawValue: Self.serif(size: size, traits: .traitBold),

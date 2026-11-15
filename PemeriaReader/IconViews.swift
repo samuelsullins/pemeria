@@ -6,29 +6,28 @@ extension IconDefinition {
     var uiColor: UIColor { UIColor(hex: color) ?? .secondaryLabel }
 }
 
-/// A file's icons, overlapping a little and fanned like cards, as in the Mac's sidebar.
-struct IconFan: View {
-    let icons: [IconDefinition]
-    var size: CGFloat = 13
+/// A file's three label slots, drawn like the Mac's sidebar (SPEC.md §4): a square each, filled
+/// with its label's colour and its symbol in white, or gray while empty. A label keeps its slot.
+struct SlotSquares: View {
+    let slots: [IconDefinition?]
 
     var body: some View {
-        HStack(spacing: -size * 0.3) {
-            ForEach(Array(icons.enumerated()), id: \.offset) { index, icon in
-                Image(systemName: icon.symbol)
-                    .font(.system(size: size, weight: .semibold))
-                    .foregroundStyle(Color(uiColor: icon.uiColor))
-                    .rotationEffect(.degrees(Self.angle(index, of: icons.count)))
-                    .accessibilityLabel(icon.name)
+        HStack(spacing: 2) {
+            ForEach(slots.indices, id: \.self) { slot in
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(slots[slot].map { Color(uiColor: $0.uiColor) } ?? Color.primary.opacity(0.1))
+                    .frame(width: 18, height: 18)
+                    .overlay {
+                        if let icon = slots[slot] {
+                            Image(systemName: icon.symbol)
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(.white)
+                        }
+                    }
             }
         }
-    }
-
-    static func angle(_ index: Int, of count: Int) -> Double {
-        switch count {
-        case 1: 0
-        case 2: [-7, 7][index]
-        default: [-10, 0, 10][min(index, 2)]
-        }
+        .accessibilityElement()
+        .accessibilityLabel(slots.compactMap { $0?.name }.joined(separator: ", "))
     }
 }
 

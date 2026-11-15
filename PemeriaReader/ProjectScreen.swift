@@ -25,7 +25,7 @@ private struct ProjectContents: View {
                 List {
                     if let working = project.manifest.workingFile, project.files[working] != nil {
                         Section("Working File") {
-                            FileLink(id: working, project: project, reader: reader)
+                            FileLink(id: working, project: project, reader: reader, marksWorkingFile: false)
                         }
                     }
                     Section {
@@ -73,6 +73,9 @@ private struct FileLink: View {
     let id: FileID
     let project: Project
     let reader: ProjectReader
+    /// The fat arrow before the Working File's name, as in the Mac's sidebar. Left off in the
+    /// Working File section, which already says what it is.
+    var marksWorkingFile = true
 
     var body: some View {
         if let file = project.files[id] {
@@ -82,10 +85,20 @@ private struct FileLink: View {
                         Image(systemName: "note.text")
                             .foregroundStyle(.secondary)
                     }
+                    if marksWorkingFile, project.manifest.workingFile == id {
+                        Image(systemName: "arrowshape.right.fill")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(Color.accentColor)
+                            .accessibilityLabel("Working File")
+                    }
                     Text(file.title)
                         .lineLimit(1)
                     Spacer(minLength: 4)
-                    IconFan(icons: project.icons(of: id))
+                    // Only on files with a label: a column of empty gray squares tells you nothing here.
+                    let slots = project.iconSlots(of: id)
+                    if slots.contains(where: { $0 != nil }) {
+                        SlotSquares(slots: slots)
+                    }
                     let words = reader.words(inTree: id)
                     if words > 0 {
                         Text(words.formatted())

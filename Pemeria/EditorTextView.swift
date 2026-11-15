@@ -1,6 +1,18 @@
 import AppKit
 import PemeriaCore
 
+/// The editor's scroll area. With typewriter scrolling there's room below the text (the
+/// scroll view's bottom inset), and when the text is shorter than the window the text view
+/// ends halfway down. Clicks in the empty space go to the text view anyway, which puts the
+/// cursor on the nearest line, as in any text editor.
+final class EditorClipView: NSClipView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        guard hit === self, let documentView else { return hit }
+        return documentView
+    }
+}
+
 /// The editor's text view: centers a column of text, routes ⌘I/⌘B, and keeps the
 /// clipboard clean in both directions (formatting in = italic/bold only; formatting out =
 /// no invisible marker characters).
@@ -192,6 +204,11 @@ final class EditorTextView: NSTextView {
 
     @objc func insertComment(_ sender: Any?) {
         controller?.insertComment()
+    }
+
+    /// Tab steps through Read, Draft and Outline (like ⌘R) rather than typing a tab.
+    override func insertTab(_ sender: Any?) {
+        controller?.cycleViewMode()
     }
 
     /// One line is one paragraph, so ⇧Return makes a new paragraph too.

@@ -305,6 +305,7 @@ struct SidebarView: NSViewRepresentable {
             if menuTargets.count == 1 {
                 menu.addItem(withTitle: "Rename", action: #selector(renameClicked), keyEquivalent: "").target = self
             }
+            menu.addItem(withTitle: "Duplicate", action: #selector(duplicateClicked), keyEquivalent: "").target = self
             let kinds = Set(menuTargets.compactMap { project.files[$0]?.kind })
             // ⌃⌘N goes on the one it does: Turn into Note, unless they're all notes already.
             let shortcutTarget: FileKind = kinds == [.note] ? .draft : .note
@@ -375,6 +376,7 @@ struct SidebarView: NSViewRepresentable {
         @objc private func newDraft() { model.newFile(kind: .draft, after: menuTargets.last) }
         @objc private func newNote() { model.newFile(kind: .note, after: menuTargets.last) }
         @objc private func renameClicked() { menuTargets.first.map(beginRenaming) }
+        @objc private func duplicateClicked() { model.duplicate(menuTargets) }
         @objc private func makeNote() { model.setKind(menuTargets, to: .note) }
         @objc private func makeDraft() { model.setKind(menuTargets, to: .draft) }
         @objc private func trashClicked() { confirmTrash(menuTargets) }
@@ -450,10 +452,9 @@ final class SidebarCell: NSTableCellView {
     private let icon = ClickableImageView()
     private let label = NSTextField(labelWithString: "")
     private let slots = LabelSlotsView()
-    /// The Working File's fat arrow, right before the name (SPEC.md §8). No room taken otherwise.
+    /// The Working File's fat arrow, right before the name (SPEC.md §8). It takes the file
+    /// icon's place rather than room of its own, so the row isn't pushed in as if nested.
     private let workingArrow = NSImageView()
-    private var workingArrowWidth: NSLayoutConstraint!
-    private var workingArrowGap: NSLayoutConstraint!
     private var isWorkingFile = false
 
     /// Called with the slot, and the view and rect to point a popover at, when a label slot is clicked.
@@ -487,13 +488,10 @@ final class SidebarCell: NSTableCellView {
         imageView = icon
         textField = label
 
-        workingArrowWidth = workingArrow.widthAnchor.constraint(equalToConstant: 0)
-        workingArrowGap = icon.leadingAnchor.constraint(equalTo: workingArrow.trailingAnchor, constant: 0)
         NSLayoutConstraint.activate([
-            workingArrow.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
-            workingArrow.centerYAnchor.constraint(equalTo: centerYAnchor),
-            workingArrowWidth,
-            workingArrowGap,
+            icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
+            workingArrow.centerXAnchor.constraint(equalTo: icon.centerXAnchor),
+            workingArrow.centerYAnchor.constraint(equalTo: icon.centerYAnchor),
             icon.centerYAnchor.constraint(equalTo: centerYAnchor),
             icon.widthAnchor.constraint(equalToConstant: 16),
             icon.heightAnchor.constraint(equalToConstant: 16),
@@ -543,10 +541,8 @@ final class SidebarCell: NSTableCellView {
         label.isEditable = false
         isEditingName = false
         self.isWorkingFile = isWorkingFile
-        workingArrowWidth.constant = isWorkingFile ? 16 : 0
-        workingArrowGap.constant = isWorkingFile ? 2 : 0
         workingArrow.isHidden = !isWorkingFile
-        icon.image = file.kind == .note ? NSImage(systemSymbolName: "note.text", accessibilityDescription: "Note") : nil
+        icon.image = !isWorkingFile && file.kind == .note ? NSImage(systemSymbolName: "note.text", accessibilityDescription: "Note") : nil
         self.slots.slots = slots
         updateTint()
     }

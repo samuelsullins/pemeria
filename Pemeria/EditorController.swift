@@ -88,6 +88,7 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         textView.textContentStorage?.delegate = self
         textView.textLayoutManager?.delegate = self
 
+        scrollView.contentView = EditorClipView()
         scrollView.documentView = textView
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
@@ -141,7 +142,7 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         if key != shown || mode != self.mode || model.contentToken != loadedToken || changedElsewhere {
             // Same files, shown the same way or with the outline pinned/unpinned: hold your place
             // in the text rather than jumping back to the last saved cursor.
-            let showsDraftText: Set<EditorMode> = [.full, .bodies]
+            let showsDraftText: Set<EditorMode> = [.full, .bodies, .reading]
             let keepsPlace = key.map(\.id) == shown.map(\.id) && !shown.isEmpty
                 && (mode == self.mode || (showsDraftText.contains(mode) && showsDraftText.contains(self.mode)))
             let place = keepsPlace ? currentPlace() : nil
@@ -202,7 +203,7 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
                 loadedVersions[part] = model.textVersion(of: part)
             }
         }
-        textView.isEditable = mode != .reading
+        textView.isEditable = true
         textView.undoManager?.removeAllActions()
         let firstText = segments.first { $0.role != .title } ?? segments.first
         textView.setSelectedRange(NSRange(location: firstText?.range.location ?? 0, length: 0))
@@ -369,6 +370,7 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
     func textView(_ textView: NSTextView, shouldChangeTextInRanges affectedRanges: [NSValue], replacementStrings: [String]?) -> Bool {
         if isQuiet { return true }
         let allowed = affectedRanges.allSatisfy { segmentIndex(containing: $0.rangeValue) != nil }
+            && (mode != .reading || !affectedRanges.contains { touchesHiddenText($0.rangeValue) })
         if !allowed {
             flashBlocked()
             return false
@@ -535,10 +537,13 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
     }
 
     /// The cursor never rests on a header or divider line; it hops over in the direction of travel.
+    /// In Read mode it doesn't rest in hidden comments either.
     func textView(_ textView: NSTextView, willChangeSelectionFromCharacterRange oldRange: NSRange, toCharacterRange newRange: NSRange) -> NSRange {
-        guard !isQuiet, newRange.length == 0, markerLine(at: newRange.location) != nil,
-              let length = textView.textStorage?.length else { return newRange }
+        guard !isQuiet, newRange.length == 0, let length = textView.textStorage?.length else { return newRange }
         let forward = newRange.location >= oldRange.location
+        var newRange = newRange
+        if mode == .reading { newRange.location = visibleCursorLocation(near: newRange.location, forward: forward) }
+        guard markerLine(at: newRange.location) != nil else { return newRange }
         // Step line by line (there may be several marker lines in a row) until clear of them.
         func hop(from location: Int, forward: Bool) -> Int? {
             var current = location
@@ -910,7 +915,14 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         let copy = NSMutableAttributedString()
         for (index, value) in textView.selectedRanges.enumerated() {
             if index > 0 { copy.append(NSAttributedString(string: "\n")) }
-            copy.append(storage.attributedSubstring(from: value.rangeValue))
+            let piece = NSMutableAttributedString(attributedString: storage.attributedSubstring(from: value.rangeValue))
+            // Read mode copies what you see: not the hidden comments and bookmarks.
+            if mode == .reading {
+                for hidden in hiddenRanges(in: value.rangeValue).reversed() {
+                    piece.deleteCharacters(in: NSRange(location: hidden.location - value.rangeValue.location, length: hidden.length))
+                }
+            }
+            copy.append(piece)
         }
 
         // Remove divider lines (the marker character plus its line break), last first.
@@ -967,7 +979,147 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         paragraph.firstLineHeadIndent = indented ? CGFloat(style.indent * style.fontSize) : 0
         paragraph.paragraphSpacing = 0
         paragraph.alignment = style.justified ? .justified : .natural
+        // Plain line breaking. The default pushes words down to avoid a one-word last line,
+        // which re-breaks (and, justified, re-spaces) the whole paragraph as you type its end.
+        paragraph.lineBreakStrategy = []
         return paragraph
+    }
+
+    // MARK: Read mode
+
+    /// Tab: Read → Draft → Outline in this editor's pane.
+    func cycleViewMode() {
+        model?.cycleViewMode(pane: pane)
+    }
+
+    /// What Read mode hides on one line: each comment or bookmark with the space before it, as
+    /// Read mode has always left them out, and whether the cursor may sit at each end of it
+    /// without what you type going into the comment.
+    private struct HiddenPart {
+        var range: NSRange
+        var startIsOutside: Bool
+        var endIsOutside: Bool
+    }
+
+    /// The line holding `location` in the files' text: where it runs (without its line break),
+    /// what's hidden on it, and whether all of it is (a line of only comments, drawn as nothing).
+    private func hiddenParts(ofLineAt location: Int) -> (line: NSRange, parts: [HiddenPart], isAllHidden: Bool)? {
+        guard let storage = textView.textStorage, let found = annotations(ofLineAt: location) else { return nil }
+        let string = storage.string as NSString
+        let segmentEnd = segments.first { $0.contains(NSRange(location: location, length: 0)) }.map { NSMaxRange($0.range) } ?? string.length
+        let lineBreak = string.range(of: "\n", options: .literal,
+                                     range: NSRange(location: found.lineStart, length: segmentEnd - found.lineStart)).location
+        let line = NSRange(location: found.lineStart, length: (lineBreak == NSNotFound ? segmentEnd : lineBreak) - found.lineStart)
+        guard !found.annotations.isEmpty else { return (line, [], false) }
+        let text = string.substring(with: line)
+        let removed = Comments.removedRanges(of: found.annotations.map(\.range), inLine: text)
+        let parts = zip(found.annotations, removed).map { annotation, range in
+            HiddenPart(range: NSRange(location: line.location + range.location, length: range.length),
+                       startIsOutside: annotation.opensHere, endIsOutside: annotation.isClosed)
+        }
+        var shown = text as NSString
+        for range in removed.sorted(by: { $0.location > $1.location }) {
+            shown = shown.replacingCharacters(in: range, with: "") as NSString
+        }
+        return (line, parts, (shown as String).allSatisfy(\.isWhitespace))
+    }
+
+    /// Where the cursor goes in Read mode when asked to go to `location`: there, unless that's
+    /// inside a hidden comment (or where typing would go into one), when it moves past it in the
+    /// direction of travel, or off a line that's all hidden.
+    private func visibleCursorLocation(near location: Int, forward: Bool) -> Int {
+        guard let length = textView.textStorage?.length else { return location }
+        var current = location
+        for _ in 0..<64 {
+            guard let found = hiddenParts(ofLineAt: current) else { return current }
+            if found.isAllHidden {
+                current = forward ? NSMaxRange(found.line) + 1 : found.line.location - 1
+                if current < 0 || current > length { return location }
+                continue
+            }
+            let blocked = found.parts.first { part in
+                let start = part.range.location, end = NSMaxRange(part.range)
+                return (start < current && current < end)
+                    || (current == start && !part.startIsOutside) || (current == end && !part.endIsOutside)
+            }
+            guard let part = blocked else { return current }
+            let ends = [(part.range.location, part.startIsOutside), (NSMaxRange(part.range), part.endIsOutside)]
+            if let next = (forward ? ends.reversed() : ends).first(where: { $0.1 && $0.0 != current }) {
+                current = next.0
+            } else {
+                current = forward ? NSMaxRange(found.line) + 1 : found.line.location - 1
+                if current < 0 || current > length { return location }
+            }
+        }
+        return location
+    }
+
+    /// Everything hidden within `range` in Read mode, in order.
+    private func hiddenRanges(in range: NSRange) -> [NSRange] {
+        guard let string = textView.textStorage?.string as NSString? else { return [] }
+        var result: [NSRange] = []
+        var location = range.location
+        while location <= NSMaxRange(range), location < string.length {
+            guard let found = hiddenParts(ofLineAt: location) else {
+                // A header or divider line: on to the next.
+                let lineBreak = string.range(of: "\n", options: .literal,
+                                             range: NSRange(location: location, length: string.length - location)).location
+                if lineBreak == NSNotFound { break }
+                location = lineBreak + 1
+                continue
+            }
+            // A line of only comments goes with its line break, leaving no empty line behind.
+            let lineParts = found.isAllHidden ? [NSRange(location: found.line.location, length: found.line.length + 1)]
+                                              : found.parts.map(\.range)
+            for part in lineParts {
+                let overlap = NSIntersectionRange(part, range)
+                if overlap.length > 0 { result.append(overlap) }
+            }
+            location = NSMaxRange(found.line) + 1
+        }
+        return result
+    }
+
+    /// Whether an edit of `range` would change hidden text in Read mode: anything in a hidden
+    /// comment, or a line break beside a line with one (joining lines can pull visible text into
+    /// a comment, out of sight). Typing where the cursor can go is fine.
+    private func touchesHiddenText(_ range: NSRange) -> Bool {
+        guard let storage = textView.textStorage else { return false }
+        let string = storage.string as NSString
+        var location = range.location
+        while true {
+            guard let found = hiddenParts(ofLineAt: location) else { break }
+            if range.length == 0 {
+                return found.parts.contains { $0.range.location < location && location < NSMaxRange($0.range) }
+            }
+            if found.parts.contains(where: { NSIntersectionRange($0.range, range).length > 0 }) { return true }
+            let lineBreak = NSMaxRange(found.line)
+            guard lineBreak < NSMaxRange(range), lineBreak < string.length else { break }
+            // The edit takes this line's break: refuse if either line it joins hides anything.
+            if !found.parts.isEmpty || !(hiddenParts(ofLineAt: lineBreak + 1)?.parts.isEmpty ?? true) { return true }
+            location = lineBreak + 1
+        }
+        return false
+    }
+
+    /// Draws a line's comments and bookmarks as nothing: too small to see and clear. A line of
+    /// only those takes no height at all.
+    private func hideAnnotations(in display: NSMutableAttributedString, lineAt location: Int) {
+        guard let found = hiddenParts(ofLineAt: location), !found.parts.isEmpty else { return }
+        let hidden: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 0.01), .foregroundColor: NSColor.clear]
+        if found.isAllHidden {
+            let collapsed = NSMutableParagraphStyle()
+            collapsed.minimumLineHeight = 0.01
+            collapsed.maximumLineHeight = 0.01
+            display.addAttributes(hidden, range: NSRange(location: 0, length: display.length))
+            display.addAttribute(.paragraphStyle, value: collapsed, range: NSRange(location: 0, length: display.length))
+            return
+        }
+        for part in found.parts {
+            let range = NSIntersectionRange(NSRange(location: part.range.location - location, length: part.range.length),
+                                            NSRange(location: 0, length: display.length))
+            if range.length > 0 { display.addAttributes(hidden, range: range) }
+        }
     }
 
     private func markerParagraphStyle(height: CGFloat) -> NSParagraphStyle {
@@ -1013,6 +1165,10 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         display.addAttribute(.font, value: font(for: 0), range: whole)
         display.enumerateAttribute(.pemeriaStyle, in: whole) { value, subrange, _ in
             if let raw = (value as? NSNumber)?.uint8Value { display.addAttribute(.font, value: font(for: raw), range: subrange) }
+        }
+        if mode == .reading {
+            hideAnnotations(in: display, lineAt: range.location)
+            return NSTextParagraph(attributedString: display)
         }
         // Comments are quiet; Done ones quieter still, and struck through. Bookmarks are in the
         // accent colour, since they're for finding your way.

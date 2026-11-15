@@ -64,6 +64,28 @@ public struct Project: Sendable {
         return changed.first { $0.id == file.id }!
     }
 
+    /// Copies files, each placed right after its original and named "… copy": text, outline,
+    /// labels and all, but not the files nested inside it. Returns the copies in book order,
+    /// and every file that changed (the copies, and any siblings whose order keys moved).
+    public mutating func duplicate(_ ids: [FileID]) -> (copies: [FileID], changed: [PemeriaFile]) {
+        let originals = tree.bookOrder.filter(Set(ids).contains)
+        var copies: Set<FileID> = []
+        var changed: Set<FileID> = []
+        for id in originals {
+            guard var copy = files[id] else { continue }
+            copy.id = FileID.generate(avoiding: files.keys)
+            copy.title = "\(copy.title) copy"
+            copy.order = ""
+            files[copy.id] = copy
+            let siblings = children(of: copy.parent)
+            let index = (siblings.firstIndex(of: id) ?? siblings.count - 1) + 1
+            changed.formUnion(place([copy.id], in: copy.parent, at: index).map(\.id))
+            changed.insert(copy.id)
+            copies.insert(copy.id)
+        }
+        return (tree.bookOrder.filter(copies.contains), changed.compactMap { files[$0] })
+    }
+
     /// Renames a file. Returns nil if nothing changed (same title, empty title, or unknown file).
     public mutating func rename(_ id: FileID, to title: String) -> PemeriaFile? {
         let title = title.singleLine

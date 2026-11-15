@@ -167,9 +167,11 @@ public enum Comments {
         })
     }
 
-    private static func stripped(_ paragraph: Paragraph, removing found: [NSRange]) -> Paragraph? {
-        let text = paragraph.text as NSString
-        let ranges = found.map { comment -> NSRange in
+    /// What Read mode leaves out of a line for each comment or bookmark found on it: the
+    /// annotation and the space before it (or, for one that starts the line, the spaces after).
+    public static func removedRanges(of found: [NSRange], inLine line: String) -> [NSRange] {
+        let text = line as NSString
+        return found.map { comment -> NSRange in
             var range = comment
             if range.location > 0 {
                 range.location -= 1
@@ -181,6 +183,10 @@ public enum Comments {
             }
             return range
         }
+    }
+
+    private static func stripped(_ paragraph: Paragraph, removing found: [NSRange]) -> Paragraph? {
+        let ranges = removedRanges(of: found, inLine: paragraph.text)
         guard !ranges.isEmpty else { return paragraph }
         var runs: [Run] = []
         var offset = 0

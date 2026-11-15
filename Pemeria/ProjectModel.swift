@@ -46,7 +46,8 @@ final class ProjectModel {
         if pinned { pinnedPanes.insert(pane) } else { pinnedPanes.remove(pane) }
     }
 
-    /// The panes in Read mode (SPEC.md §12): comments, outlines and bookmarks hidden; not editable.
+    /// The panes in Read mode (SPEC.md §12): comments, outlines and bookmarks hidden. Editable,
+    /// except where something is hidden.
     /// Each pane has its own; unsplit, only pane 0 counts.
     private(set) var readingPanes: Set<Int> = [] {
         willSet { commitEditors() }
@@ -87,7 +88,7 @@ final class ProjectModel {
         }
     }
 
-    /// What a pane shows (SPEC.md §12): Read (the draft, read-only, comments and outlines
+    /// What a pane shows (SPEC.md §12): Read (the draft, comments and outlines
     /// hidden), Draft, or Outline. Read and Outline are kept as the two sets above.
     enum ViewMode: CaseIterable {
         case read, draft, outline
@@ -125,7 +126,7 @@ final class ProjectModel {
         showsDrafts(pane: pane) ? ViewMode.allCases : [.read, .draft]
     }
 
-    /// ⌘R: Read → Draft → Outline → Read, in the active pane by default.
+    /// ⌘R or Tab: Read → Draft → Outline → Read, in the active pane by default.
     func cycleViewMode(pane: Int? = nil) {
         let pane = pane ?? activePane
         let modes = viewModes(pane: pane)
@@ -444,6 +445,15 @@ final class ProjectModel {
         renameRequest = file.id
     }
 
+    /// Duplicate: copies of these files, each right after its original, then selected.
+    func duplicate(_ ids: [FileID]) {
+        commitEditors()
+        let (copies, changed) = project.duplicate(ids)
+        guard !copies.isEmpty else { return }
+        save(changed)
+        selection = copies
+    }
+
     func rename(_ id: FileID, to title: String) {
         if let file = project.rename(id, to: title) { save([file]) }
     }
@@ -605,6 +615,23 @@ final class ProjectModel {
         guard !trimmed.isEmpty, trimmed != project.manifest.name else { return }
         project.manifest.name = trimmed
         writeManifest()
+    }
+
+    /// File → Rename Project…: asks for the new name in a sheet on the window.
+    func showRenameProjectSheet() {
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+        let alert = NSAlert()
+        alert.messageText = "Rename Project"
+        alert.informativeText = "The name shown in the title bar and the iPhone reader. The project's file in Finder keeps its name."
+        let field = NSTextField(string: project.manifest.name)
+        field.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Rename")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        alert.beginSheetModal(for: window) { [weak self] response in
+            if response == .alertFirstButtonReturn { self?.renameProject(to: field.stringValue) }
+        }
     }
 
     func setIconDefinitions(_ icons: [IconDefinition]) {

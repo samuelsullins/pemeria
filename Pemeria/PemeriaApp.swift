@@ -67,6 +67,10 @@ struct PemeriaCommands: Commands {
             }
             .keyboardShortcut("n", modifiers: [.command, .control])
             .disabled(app.project?.selection.isEmpty ?? true)
+            Button("Duplicate") {
+                if let project = app.project { project.duplicate(project.selection) }
+            }
+            .disabled(app.project?.selection.isEmpty ?? true)
             Divider()
             Button("New Project…") { app.showNewProjectPanel() }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
@@ -89,6 +93,9 @@ struct PemeriaCommands: Commands {
             }
             .disabled(app.project?.selection.count != 1)
             Button("Show Trash") { app.project?.isShowingTrash = true }
+                .disabled(app.project == nil)
+            Divider()
+            Button("Rename Project…") { app.project?.showRenameProjectSheet() }
                 .disabled(app.project == nil)
         }
 

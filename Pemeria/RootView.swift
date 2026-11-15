@@ -75,13 +75,8 @@ struct ProjectView: View {
                 .inspectorColumnWidth(min: 220, ideal: 270, max: 420)
             }
         }
-        // The system's own title, so the toolbar keeps its usual layout. Given a binding, and
-        // with the editor toolbar role, SwiftUI offers renaming it from the title bar.
-        .navigationTitle(Binding(
-            get: { model.project.manifest.name },
-            set: { model.renameProject(to: $0) }
-        ))
-        .toolbarRole(.editor)
+        // Renamed with File → Rename Project…
+        .navigationTitle(model.project.manifest.name)
         .onChange(of: model.iconEditorRequest) { columns = .all }
         .sheet(isPresented: Binding(get: { model.historyFile != nil }, set: { if !$0 { model.historyFile = nil } })) {
             if let id = model.historyFile {

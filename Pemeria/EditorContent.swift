@@ -61,7 +61,8 @@ enum EditorMode: Equatable {
     case outlines
     /// Outline view: like `.outlines`, but as the main editor, at full brightness.
     case outlineView
-    /// Read mode: draft and note text with comments and bookmarks hidden. Not editable.
+    /// Read mode: draft and note text with comments and bookmarks hidden. Still editable, but
+    /// never where something is hidden.
     case reading
 }
 
@@ -97,17 +98,15 @@ struct EditorContent {
     init(files: [PemeriaFile], mode: EditorMode) {
         for file in files {
             switch mode {
-            case .full, .bodies:
+            case .full, .bodies, .reading:
+                // Read mode shows the same text, comments and all; they're hidden as it's drawn
+                // (EditorController), so it can be edited like the draft.
                 appendTitle(of: file, after: files.count > 1)
                 appendSegment(file.id, .body, indented: file.indents, TextBridge.attributedString(file.body))
                 if mode == .full, file.kind == .draft {
                     appendMarker(EditorMarker(kind: .outlineDivider, fileID: file.id, title: file.title))
                     appendSegment(file.id, .outline, indented: false, TextBridge.attributedString(file.outline ?? []))
                 }
-            case .reading:
-                appendTitle(of: file, after: files.count > 1)
-                let readable = Comments.strippedParagraphs(of: file.body).compactMap { $0.map(Block.paragraph) }
-                appendSegment(file.id, .body, indented: file.indents, TextBridge.attributedString(readable))
             case .outlines, .outlineView:
                 guard file.kind == .draft else { continue }
                 // Outlines are labelled only when there's more than one to tell apart.

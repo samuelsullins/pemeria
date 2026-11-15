@@ -34,6 +34,20 @@ struct ProjectTests {
         #expect(project.files[id(project, "s11")]!.outline == [])
     }
 
+    @Test func duplicateGoesRightAfterEachOriginal() {
+        var project = sample()
+        var s11 = project.files[id(project, "s11")]!
+        s11.body = [.paragraph(Paragraph("Hello"))]
+        project.files[s11.id] = s11
+        let (copies, changed) = project.duplicate([id(project, "s11"), id(project, "Chapter 2")])
+        #expect(titles(project, project.tree.bookOrder)
+            == ["Chapter 1", "s11", "s11 copy", "s12", "Chapter 2", "s21", "Chapter 2 copy", "Note"])
+        #expect(titles(project, copies) == ["s11 copy", "Chapter 2 copy"])
+        #expect(Set(changed.map(\.id)).isSuperset(of: copies))
+        let copy = project.files[copies[0]]!
+        #expect(copy.body == s11.body && copy.parent == s11.parent && copy.id != s11.id)
+    }
+
     @Test func newFileGoesRightAfterTheSelectedOne() {
         var project = sample()
         let file = project.createFile(kind: .draft, title: "new", after: id(project, "s11"))

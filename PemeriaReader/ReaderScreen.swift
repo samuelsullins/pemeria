@@ -17,7 +17,7 @@ struct ReaderScreen: View {
                 let files = ([fileID] + project.descendants(of: fileID)).compactMap { project.files[$0] }
                 let words = files.reduce(0) { $0 + (reader.bodyWords[$1.id] ?? 0) }
                 ReaderTextView(
-                    input: ReaderText.Input(files: files, icons: project.manifest.icons, readMode: readMode, fontSize: fontSize),
+                    input: ReaderText.Input(files: files, readMode: readMode, fontSize: fontSize),
                     positionKey: "\(projectID.uuidString)/\(fileID.rawValue)"
                 )
                 .ignoresSafeArea(edges: .bottom)

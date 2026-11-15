@@ -236,6 +236,10 @@ struct RenameField: View {
     let onRename: (String) -> Void
     @State private var text = ""
     @FocusState private var focused: Bool
+    /// Whether you're renaming here. Only then is there anything to save: the header keeps
+    /// spare copies of this field (narrower layouts), and one going away as the name changes
+    /// elsewhere (the title line in the text) would otherwise save its stale name back.
+    @State private var editing = false
 
     var body: some View {
         // Sized to the name (the hidden text), so the icons can sit right beside it.
@@ -257,7 +261,7 @@ struct RenameField: View {
                 if !focused { text = name }
             }
             .onChange(of: focused) { _, isFocused in
-                if !isFocused { commit() }
+                if isFocused { editing = true } else { commit() }
             }
             .onSubmit { focused = false }
             // Clicking another file mid-rename removes this field before it loses focus.
@@ -270,6 +274,8 @@ struct RenameField: View {
     }
 
     private func commit() {
+        guard editing else { return }
+        editing = false
         let trimmed = text.trimmingCharacters(in: .whitespaces)
         if trimmed.isEmpty || trimmed == name {
             text = name
@@ -280,7 +286,7 @@ struct RenameField: View {
 }
 
 /// First-line indents on or off for the shown files (on when every one of them is indented).
-/// Says what clicking does: "No Indent" while indented, "Use Indent" while not.
+/// Shows the state: "Indent ✓" while indented, plain "Indent" while not.
 private struct IndentButton: View {
     let model: ProjectModel
     let files: [PemeriaFile]
@@ -298,7 +304,15 @@ private struct IndentButton: View {
                     .foregroundStyle(indented ? Color.primary : Color.secondary)
                     .frame(width: 18)
             } else {
-                HeaderWordButton(title: indented ? "No Indent" : "Use Indent")
+                HStack(spacing: 3) {
+                    HeaderWordButton(title: "Indent")
+                    if indented {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Theme.buttonGray)
+                    }
+                }
+                .contentShape(Rectangle())
             }
         }
         .buttonStyle(.plain)
